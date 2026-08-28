@@ -12,3 +12,6 @@
 # IDE 配置
 .idea/
 .vscode/
+
+#opencode 配置
+.opencode/
