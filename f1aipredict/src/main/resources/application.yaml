@@ -1,8 +1,22 @@
+server:
+  port:7777
+
 spring:
   application:
     name: f1aipredict
   datasource:
-    url: jdbc:mysql://${MYSQL_HOST:47.96.110.22}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:f1_ai_predict}?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://47.96.110.22:3306/:f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: lbz206718
     driver-class-name: com.mysql.cj.jdbc.Driver
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.lbz.f1aipredict.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
