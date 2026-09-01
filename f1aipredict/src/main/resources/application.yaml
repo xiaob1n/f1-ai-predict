@@ -5,10 +5,23 @@ spring:
   application:
     name: f1aipredict
   datasource:
-    url: jdbc:mysql://47.96.110.22:3306/:f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://47.96.110.22:3306/f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: lbz206718
     driver-class-name: com.mysql.cj.jdbc.Driver
+
+# F1 Predict 官方 Feed 地址（禁止在业务代码中硬编码）
+f1predict:
+  feed:
+    base-url: https://f1predict.formula1.com
+    schedule-path: /feeds/schedule/raceday_en.json
+    limits-path: /feeds/limits/constraints.json
+    questions-path: /feeds/questions/questions_{gamedayId}_en.json
+    mix-api-path: /feeds/live/mixapi.json
+    web-config-path: /feeds/apps/web_config.json
+    # 供后续 WebClient 使用；缺省与 F1PredictFeedProperties 字段默认值一致
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

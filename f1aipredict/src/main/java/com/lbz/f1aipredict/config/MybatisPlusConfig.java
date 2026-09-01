@@ -10,9 +10,14 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * MyBatis-Plus 配置类，统一注册 Mapper 扫描和数据库操作插件。
+ * 扫描 question、sync、season 三个领域的 Mapper 包。
  */
 @Configuration
-@MapperScan("com.lbz.f1aipredict.question.mapper")
+@MapperScan({
+        "com.lbz.f1aipredict.question.mapper",
+        "com.lbz.f1aipredict.sync.mapper",
+        "com.lbz.f1aipredict.season.mapper"
+})
 public class MybatisPlusConfig {
 
     /**

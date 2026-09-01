@@ -36,6 +36,16 @@ public interface QuestionSnapshotMapper extends BaseMapper<QuestionSnapshot> {
     List<QuestionSnapshot> selectByQuestionId(@Param("questionId") Long questionId);
 
     /**
+     * 查询某题当前最大 snapshot_no，用于生成新快照时递增。
+     * 无快照时返回 null。
+     *
+     * @param questionId 题目主键
+     * @return 最大 snapshot_no，无则返回 null
+     */
+    @Select("SELECT MAX(snapshot_no) FROM question_snapshot WHERE question_id = #{questionId}")
+    Integer selectMaxSnapshotNo(@Param("questionId") Long questionId);
+
+    /**
      * 按主键集合批量查询快照
      * <p>方法名刻意命名为 {@code selectSnapshotByIds}：父接口 BaseMapper 已声明
      * {@code selectByIds(Collection<? extends Serializable>)}，若本接口再用

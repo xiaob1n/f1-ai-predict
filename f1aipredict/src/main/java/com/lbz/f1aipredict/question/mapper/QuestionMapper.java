@@ -60,6 +60,17 @@ public interface QuestionMapper extends BaseMapper<Question> {
     Question selectById(@Param("id") Long id);
 
     /**
+     * 按 gameday_id 与来源题目 ID 查询唯一题目（对应唯一键 uk_question_source）。
+     *
+     * @param gamedayId        比赛日 ID，不得为 null
+     * @param sourceQuestionId 来源题目 ID，不得为 null
+     * @return 匹配的题目，无则返回 null
+     */
+    @Select("SELECT * FROM question WHERE gameday_id = #{gamedayId} AND source_question_id = #{sourceQuestionId} LIMIT 1")
+    Question selectByGamedayIdAndSourceQuestionId(@Param("gamedayId") Integer gamedayId,
+                                                  @Param("sourceQuestionId") Integer sourceQuestionId);
+
+    /**
      * 内部 SQL 提供器：将 selectByRound 的动态 SQL 生成逻辑内聚于此，
      * 避免依赖外部 Provider 类，保证 Mapper 文件自包含。
      */
