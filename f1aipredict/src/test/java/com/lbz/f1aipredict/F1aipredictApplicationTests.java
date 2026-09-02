@@ -3,6 +3,7 @@ package com.lbz.f1aipredict;
 import com.lbz.f1aipredict.sync.client.F1PredictFeedClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 /**
@@ -18,6 +19,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
     },
     webEnvironment = SpringBootTest.WebEnvironment.NONE
 )
+// 激活 test profile 以加载 application-test.yaml，使 scheduler 默认关闭，避免其急切创建触发缺失 DataSource 的构造失败
+@ActiveProfiles("test")
 class F1aipredictApplicationTests {
 
     /** 替换生产 Feed 客户端，禁止打真实 f1predict.formula1.com */

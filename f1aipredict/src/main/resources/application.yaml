@@ -22,6 +22,12 @@ f1predict:
     # 供后续 WebClient 使用；缺省与 F1PredictFeedProperties 字段默认值一致
     connect-timeout-ms: 5000
     read-timeout-ms: 10000
+  # 每小时最新问题同步：启动后等 1 小时首次执行，随后固定延迟 1 小时
+  sync:
+    scheduler:
+      enabled: true          # 是否启用每小时问题同步定时任务
+      initial-delay: PT1H    # 应用启动后首次执行延迟（ISO-8601 Duration 格式，1小时）
+      fixed-delay: PT1H      # 上一次执行完成后到下一次执行开始的固定间隔（ISO-8601 Duration 格式，1小时）
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
