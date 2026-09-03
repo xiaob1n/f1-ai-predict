@@ -5,7 +5,7 @@ spring:
   application:
     name: f1aipredict
   datasource:
-    url: jdbc:mysql://47.96.110.22:3306/f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://129.225.134.151:3306/f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
     username: root
     password: lbz206718
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -28,6 +28,13 @@ f1predict:
       enabled: true          # 是否启用每小时问题同步定时任务
       initial-delay: PT1H    # 应用启动后首次执行延迟（ISO-8601 Duration 格式，1小时）
       fixed-delay: PT1H      # 上一次执行完成后到下一次执行开始的固定间隔（ISO-8601 Duration 格式，1小时）
+
+logging:
+  level:
+    root: INFO
+    com.lbz.f1aipredict: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{requestId}] %logger{36} - %msg%n"
 
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

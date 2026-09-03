@@ -2,6 +2,7 @@ package com.lbz.f1aipredict.common;
 
 import com.lbz.f1aipredict.common.dto.ApiErrorResponse;
 import com.lbz.f1aipredict.sync.FeedSyncException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * 避免将 SQL、堆栈、内部类名或外部 Feed URL 等敏感信息暴露给客户端。
  * 未注册的异常（如 {@link IllegalStateException}）不映射为本 advice 的 404 / 502。
  */
+@Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
@@ -33,6 +35,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleResourceNotFound(ResourceNotFoundException ex) {
+        log.info("资源未找到: errorType={}", ex.getClass().getSimpleName());
         ApiErrorResponse body = ApiErrorResponse.builder()
                 .code("RESOURCE_NOT_FOUND")
                 .message(ex.getMessage())
@@ -53,6 +56,8 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(FeedSyncException.class)
     public ResponseEntity<ApiErrorResponse> handleFeedSync(FeedSyncException ex) {
+        log.error("Feed 同步失败: httpStatus={}, errorType={}, causeType={}",
+                ex.getHttpStatus(), ex.getClass().getSimpleName(), causeType(ex));
         ApiErrorResponse body = ApiErrorResponse.builder()
                 .code("FEED_SYNC_ERROR")
                 .message(safeFeedSyncMessage(ex))
@@ -85,5 +90,9 @@ public class GlobalExceptionHandler {
         }
         String stripped = raw.replaceAll("(?i)https?://\\S+", "").replaceAll("\\s{2,}", " ").trim();
         return stripped.isEmpty() ? FEED_SYNC_FAILED : stripped;
+    }
+
+    private static String causeType(Throwable throwable) {
+        return throwable.getCause() == null ? null : throwable.getCause().getClass().getSimpleName();
     }
 }

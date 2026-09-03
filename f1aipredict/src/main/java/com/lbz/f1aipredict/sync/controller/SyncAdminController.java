@@ -6,6 +6,7 @@ import com.lbz.f1aipredict.sync.dto.SyncRecordQuery;
 import com.lbz.f1aipredict.sync.dto.SyncResultDto;
 import com.lbz.f1aipredict.sync.service.FeedSyncService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
  * v1 未将 springdoc-openapi 放入 classpath，因此不添加 {@code @Operation} 等 OpenAPI 注解
  * （加上也无法编译）。各端点以本类中文方法注释为文档来源。
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/admin/sync")
 @RequiredArgsConstructor
@@ -37,6 +39,7 @@ public class SyncAdminController {
      */
     @PostMapping("/schedule")
     public SyncResultDto syncSchedule() {
+        log.info("管理端触发赛程同步");
         return feedSyncService.syncSchedule();
     }
 
@@ -49,6 +52,7 @@ public class SyncAdminController {
      */
     @PostMapping("/limits")
     public SyncResultDto syncLimits() {
+        log.info("管理端触发 limits 同步");
         return feedSyncService.syncLimits();
     }
 
@@ -60,6 +64,7 @@ public class SyncAdminController {
      */
     @PostMapping("/questions/{gamedayId}")
     public SyncResultDto syncQuestions(@PathVariable Integer gamedayId) {
+        log.info("管理端触发题目同步: gamedayId={}", gamedayId);
         return feedSyncService.syncQuestions(gamedayId);
     }
 
@@ -70,6 +75,7 @@ public class SyncAdminController {
      */
     @PostMapping("/current")
     public SyncResultDto syncCurrent() {
+        log.info("管理端触发当前轮次串联同步");
         return feedSyncService.syncCurrent();
     }
 
@@ -84,6 +90,9 @@ public class SyncAdminController {
     @GetMapping("/records")
     public SyncRecordPageDto pageRecords(@ModelAttribute SyncRecordQuery query) {
         query.clampPaging();
+        log.debug("管理端查询同步记录: sourceType={}, gamedayId={}, status={}, page={}, size={}",
+                query.getSourceType(), query.getGamedayId(), query.getStatus(),
+                query.getPage(), query.getSize());
         return feedSyncService.pageRecords(query);
     }
 
@@ -95,6 +104,7 @@ public class SyncAdminController {
      */
     @GetMapping("/raw-payloads/{payloadId}")
     public RawPayloadDto getRawPayload(@PathVariable Long payloadId) {
+        log.debug("管理端读取 Feed 留档: payloadId={}", payloadId);
         return feedSyncService.getRawPayload(payloadId);
     }
 }

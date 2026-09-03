@@ -1,12 +1,15 @@
 package com.lbz.f1aipredict.sync.schedule;
 
+import com.lbz.f1aipredict.common.RequestId;
 import com.lbz.f1aipredict.sync.dto.SyncResultDto;
 import com.lbz.f1aipredict.sync.service.FeedSyncService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.util.UUID;
 
 /**
  * 每小时最新问题同步调度器。
@@ -16,6 +19,7 @@ import org.springframework.stereotype.Component;
  * 由 {@code f1predict.sync.scheduler.enabled} 控制是否创建本 Bean；
  * 缺省视为开启，与生产 YAML 默认值一致。
  */
+@Slf4j
 @Component
 @ConditionalOnProperty(
         prefix = "f1predict.sync.scheduler",
@@ -32,8 +36,6 @@ public class HourlyQuestionSyncScheduler {
 
     /** 同步失败 */
     private static final String STATUS_FAILED = "FAILED";
-
-    private static final Logger log = LoggerFactory.getLogger(HourlyQuestionSyncScheduler.class);
 
     /** 唯一依赖：复用现有同步编排接口 */
     private final FeedSyncService feedSyncService;
@@ -58,13 +60,19 @@ public class HourlyQuestionSyncScheduler {
             initialDelayString = "${f1predict.sync.scheduler.initial-delay:PT1H}",
             fixedDelayString = "${f1predict.sync.scheduler.fixed-delay:PT1H}")
     public void syncLatestQuestions() {
+        long startedAt = System.currentTimeMillis();
+        // 定时任务没有入站请求头，自行写入 MDC，便于与 HTTP 日志共用 requestId 模式
+        MDC.put(RequestId.MDC_KEY, UUID.randomUUID().toString());
         try {
+            log.info("开始每小时最新问题同步");
             // 每轮只调用一次 syncCurrent，由服务内部完成 limits → schedule → questions
             SyncResultDto result = feedSyncService.syncCurrent();
             logSyncResult(result);
         } catch (RuntimeException ex) {
             // 隔离运行时异常，避免打垮调度线程；异常对象放最后参数以打印堆栈
-            log.error("每小时最新问题同步发生未处理运行时异常", ex);
+            log.error("每小时最新问题同步发生未处理运行时异常: durationMs={}", elapsedMs(startedAt), ex);
+        } finally {
+            MDC.remove(RequestId.MDC_KEY);
         }
     }
 
@@ -102,5 +110,9 @@ public class HourlyQuestionSyncScheduler {
         }
         log.warn("每小时最新问题同步返回无法识别的状态: sourceType={}, status={}, gamedayId={}, errorMessage={}",
                 result.getSourceType(), status, result.getGamedayId(), result.getErrorMessage());
+    }
+
+    private static long elapsedMs(long startedAt) {
+        return Math.max(0L, System.currentTimeMillis() - startedAt);
     }
 }

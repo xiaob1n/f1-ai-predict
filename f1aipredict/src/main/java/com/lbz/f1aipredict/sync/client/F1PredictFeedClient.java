@@ -3,8 +3,7 @@ package com.lbz.f1aipredict.sync.client;
 import com.lbz.f1aipredict.sync.FeedSyncException;
 import com.lbz.f1aipredict.sync.config.F1PredictFeedProperties;
 import io.netty.channel.ChannelOption;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
@@ -17,6 +16,7 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 import reactor.core.publisher.Mono;
 import reactor.netty.http.client.HttpClient;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Objects;
 
@@ -26,6 +26,7 @@ import java.util.Objects;
  * URL 一律来自 {@link F1PredictFeedProperties}，禁止硬编码。
  * 返回同步 {@link String}，方便后续 Service 串行调用；WebClient 由本类根据超时配置构造。
  */
+@Slf4j
 @Component
 public class F1PredictFeedClient {
 
@@ -33,8 +34,6 @@ public class F1PredictFeedClient {
     public static final String USER_AGENT = "F1AiPredict-FeedClient/1.0";
 
     private static final String GAMEDAY_PLACEHOLDER = "{gamedayId}";
-
-    private static final Logger log = LoggerFactory.getLogger(F1PredictFeedClient.class);
 
     private final F1PredictFeedProperties properties;
     private final WebClient webClient;
@@ -114,14 +113,15 @@ public class F1PredictFeedClient {
      */
     private String getJson(String path) {
         String relativePath = ensureLeadingSlash(path);
-        log.debug("GET Feed path={}", relativePath);
+        long startedAt = System.currentTimeMillis();
+        log.debug("开始调用外部 Feed: path={}", relativePath);
         try {
             String body = webClient.get()
                     .uri(relativePath)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, response -> {
                         int status = response.statusCode().value();
-                        // 消费 body 避免连接泄漏，但不把原文塞进异常 message
+                        // 消费 body 避免连接泄漏，但不把原文塞进异常 message 或日志
                         return response.bodyToMono(String.class)
                                 .defaultIfEmpty("")
                                 .flatMap(ignored -> Mono.error(new FeedSyncException(
@@ -129,21 +129,42 @@ public class F1PredictFeedClient {
                     })
                     .bodyToMono(String.class)
                     .block();
-            return body == null ? "" : body;
+            String json = body == null ? "" : body;
+            log.info("外部 Feed 调用完成: path={}, status={}, durationMs={}, responseBytes={}",
+                    relativePath, 200, elapsedMs(startedAt), utf8ByteLength(json));
+            return json;
         } catch (FeedSyncException ex) {
+            log.warn("外部 Feed 调用失败: path={}, status={}, durationMs={}, error={}",
+                    relativePath, ex.getHttpStatus(), elapsedMs(startedAt), ex.getMessage());
             throw ex;
         } catch (WebClientResponseException ex) {
             int status = ex.getStatusCode().value();
+            log.warn("外部 Feed 调用失败: path={}, status={}, durationMs={}",
+                    relativePath, status, elapsedMs(startedAt));
             throw new FeedSyncException("Feed request failed with HTTP " + status, status, ex);
         } catch (WebClientRequestException ex) {
+            log.error("外部 Feed 网络失败: path={}, durationMs={}, errorType={}, causeType={}",
+                    relativePath, elapsedMs(startedAt), ex.getClass().getSimpleName(), causeType(ex));
             throw new FeedSyncException("Feed request network failure", ex);
         } catch (RuntimeException ex) {
             FeedSyncException nested = findCause(ex, FeedSyncException.class);
             if (nested != null) {
+                log.warn("外部 Feed 调用失败: path={}, status={}, durationMs={}, error={}",
+                        relativePath, nested.getHttpStatus(), elapsedMs(startedAt), nested.getMessage());
                 throw nested;
             }
+            log.error("外部 Feed 网络失败: path={}, durationMs={}, errorType={}, causeType={}",
+                    relativePath, elapsedMs(startedAt), ex.getClass().getSimpleName(), causeType(ex));
             throw new FeedSyncException("Feed request network failure", ex);
         }
+    }
+
+    private static long elapsedMs(long startedAt) {
+        return Math.max(0L, System.currentTimeMillis() - startedAt);
+    }
+
+    private static int utf8ByteLength(String value) {
+        return value.getBytes(StandardCharsets.UTF_8).length;
     }
 
     private static String trimTrailingSlash(String baseUrl) {
@@ -169,5 +190,9 @@ public class F1PredictFeedClient {
             current = current.getCause();
         }
         return null;
+    }
+
+    private static String causeType(Throwable throwable) {
+        return throwable.getCause() == null ? null : throwable.getCause().getClass().getSimpleName();
     }
 }

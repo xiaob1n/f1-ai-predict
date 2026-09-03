@@ -39,8 +39,7 @@ import com.lbz.f1aipredict.sync.feed.RacedayFeedSession;
 import com.lbz.f1aipredict.sync.service.FeedSyncService;
 import com.lbz.f1aipredict.sync.store.SyncPersistenceStore;
 import com.lbz.f1aipredict.sync.util.FeedSyncUtils;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -63,6 +62,7 @@ import java.util.Objects;
  * 赛程 Feed 同步实现：拉取 raceday JSON，按 SHA-256 幂等留档，
  * 并以 MeetingId（回退 MeetingNumber）把同一 Grand Prix 收成一个 round。
  */
+@Slf4j
 @Service
 public class FeedSyncServiceImpl implements FeedSyncService {
 
@@ -87,8 +87,6 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     private static final String DEFAULT_SESSION_STATUS = "SCHEDULED";
     private static final String SNAPSHOT_REASON_INITIAL = "INITIAL";
     private static final String SNAPSHOT_REASON_CHANGED = "CHANGED";
-
-    private static final Logger log = LoggerFactory.getLogger(FeedSyncServiceImpl.class);
 
     private final F1PredictFeedClient feedClient;
     private final F1PredictFeedProperties properties;
@@ -170,12 +168,17 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     @Transactional
     public SyncResultDto syncSchedule() {
         long startedAt = System.currentTimeMillis();
+        log.info("开始赛程同步");
         String sourceUrl = buildSourceUrl();
         try {
             String rawJson = feedClient.fetchSchedule();
-            return persistSchedule(rawJson, sourceUrl, startedAt);
+            SyncResultDto result = persistSchedule(rawJson, sourceUrl, startedAt);
+            log.info("赛程同步结束: status={}, recordId={}, payloadId={}, durationMs={}",
+                    result.getStatus(), result.getSyncRecordId(), result.getPayloadId(), elapsedMs(startedAt));
+            return result;
         } catch (FeedSyncException ex) {
-            log.error("赛程 Feed 拉取失败: {}", ex.getMessage());
+            log.error("赛程 Feed 拉取失败: httpStatus={}, errorType={}",
+                    ex.getHttpStatus(), ex.getClass().getSimpleName());
             return writeFailed(SOURCE_TYPE_SCHEDULE, sourceUrl, null, null, ex.getMessage(), ex.getHttpStatus(), startedAt, null);
         }
     }
@@ -192,6 +195,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         if (previous != null) {
             Long recordId = persistenceStore.saveSyncRecord(
                     newSyncRecord(SOURCE_TYPE_SCHEDULE, sourceUrl, contentHash, STATUS_SKIPPED, 200, null, startedAt, null));
+            log.warn("赛程内容未变化，跳过业务写入: recordId={}, payloadId={}", recordId, payloadId);
             return result(SOURCE_TYPE_SCHEDULE, STATUS_SKIPPED, contentHash, recordId, payloadId, null);
         }
 
@@ -200,10 +204,12 @@ public class FeedSyncServiceImpl implements FeedSyncService {
             String note = skippedSessions > 0 ? "skippedSessions=" + skippedSessions : null;
             Long recordId = persistenceStore.saveSyncRecord(
                     newSyncRecord(SOURCE_TYPE_SCHEDULE, sourceUrl, contentHash, STATUS_SUCCESS, 200, note, startedAt, null));
+            log.info("赛程业务写入完成: recordId={}, payloadId={}, skippedSessions={}",
+                    recordId, payloadId, skippedSessions);
             return result(SOURCE_TYPE_SCHEDULE, STATUS_SUCCESS, contentHash, recordId, payloadId, note);
         } catch (JacksonException | IllegalArgumentException ex) {
             // 畸形 JSON：已留档，不写业务表，记 FAILED；其它运行时异常向外抛出以便事务回滚。
-            log.error("赛程 JSON 解析失败: {}", ex.getMessage());
+            log.error("赛程 JSON 解析失败", ex);
             return writeFailed(SOURCE_TYPE_SCHEDULE, sourceUrl, contentHash, payloadId, ex.getMessage(), 200, startedAt, null);
         }
     }
@@ -219,12 +225,18 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         if (gamedayId == null) {
             throw new IllegalArgumentException("gamedayId must not be null");
         }
+        log.info("开始题目同步: gamedayId={}", gamedayId);
         String sourceUrl = buildQuestionsSourceUrl(gamedayId);
         try {
             String rawJson = feedClient.fetchQuestions(gamedayId);
-            return persistQuestions(rawJson, gamedayId, sourceUrl, startedAt);
+            SyncResultDto result = persistQuestions(rawJson, gamedayId, sourceUrl, startedAt);
+            log.info("题目同步结束: gamedayId={}, status={}, recordId={}, payloadId={}, durationMs={}",
+                    gamedayId, result.getStatus(), result.getSyncRecordId(), result.getPayloadId(),
+                    elapsedMs(startedAt));
+            return result;
         } catch (FeedSyncException ex) {
-            log.error("题目 Feed 拉取失败: gamedayId={}, error={}", gamedayId, ex.getMessage());
+            log.error("题目 Feed 拉取失败: gamedayId={}, httpStatus={}, errorType={}",
+                    gamedayId, ex.getHttpStatus(), ex.getClass().getSimpleName());
             return writeFailed(SOURCE_TYPE_QUESTIONS, sourceUrl, null, null, ex.getMessage(), ex.getHttpStatus(), startedAt, gamedayId);
         }
     }
@@ -235,8 +247,12 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      */
     @Override
     public SyncResultDto syncCurrent() {
+        long startedAt = System.currentTimeMillis();
+        log.info("开始当前轮次串联同步");
         LimitsArchive limits = fetchAndArchiveLimits();
         if (!STATUS_SUCCESS.equals(limits.status())) {
+            log.warn("当前轮次同步因 limits 失败而中止: recordId={}, payloadId={}, durationMs={}",
+                    limits.syncRecordId(), limits.payloadId(), elapsedMs(startedAt));
             return currentResult(STATUS_FAILED, limits.contentHash(), limits.syncRecordId(), limits.payloadId(),
                     limits.errorMessage(), null, null, null);
         }
@@ -249,6 +265,11 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         SyncResultDto questionsResult = target.syncQuestions(gamedayId);
         String overall = bothChildrenOk(scheduleResult, questionsResult) ? STATUS_SUCCESS : STATUS_FAILED;
         String errorMessage = STATUS_FAILED.equals(overall) ? summarizeChildErrors(scheduleResult, questionsResult) : null;
+        log.info("当前轮次串联同步结束: status={}, gamedayId={}, scheduleStatus={}, questionsStatus={}, durationMs={}",
+                overall, gamedayId,
+                scheduleResult == null ? null : scheduleResult.getStatus(),
+                questionsResult == null ? null : questionsResult.getStatus(),
+                elapsedMs(startedAt));
         return currentResult(overall, limits.contentHash(), limits.syncRecordId(), limits.payloadId(),
                 errorMessage, gamedayId, scheduleResult, questionsResult);
     }
@@ -258,7 +279,10 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      */
     @Override
     public SyncResultDto syncLimits() {
+        log.info("开始 limits 同步");
         LimitsArchive limits = fetchAndArchiveLimits();
+        log.info("limits 同步结束: status={}, gamedayId={}, recordId={}, payloadId={}",
+                limits.status(), limits.gamedayId(), limits.syncRecordId(), limits.payloadId());
         return SyncResultDto.builder()
                 .sourceType(SOURCE_TYPE_LIMITS)
                 .status(limits.status())
@@ -277,6 +301,8 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     public SyncRecordPageDto pageRecords(SyncRecordQuery query) {
         Objects.requireNonNull(query, "query must not be null");
         query.clampPaging();
+        log.debug("查询同步记录: sourceType={}, gamedayId={}, status={}, page={}, size={}",
+                query.getSourceType(), query.getGamedayId(), query.getStatus(), query.getPage(), query.getSize());
         Page<SyncRecord> page = persistenceStore.pageRecords(query);
         List<SyncRecordDto> items = new ArrayList<>();
         if (page.getRecords() != null) {
@@ -284,6 +310,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
                 items.add(toRecordDto(record));
             }
         }
+        log.debug("查询同步记录完成: total={}, rows={}", page.getTotal(), items.size());
         return SyncRecordPageDto.builder()
                 .items(items)
                 .page(query.getPage())
@@ -298,8 +325,10 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     @Override
     public RawPayloadDto getRawPayload(Long payloadId) {
         Objects.requireNonNull(payloadId, "payloadId must not be null");
+        log.debug("查询 Feed 留档: payloadId={}", payloadId);
         FeedRawPayload payload = persistenceStore.findRawPayloadById(payloadId);
         if (payload == null) {
+            log.warn("Feed 留档不存在: payloadId={}", payloadId);
             throw new ResourceNotFoundException("Raw payload not found: " + payloadId);
         }
         return RawPayloadDto.builder()
@@ -325,7 +354,8 @@ public class FeedSyncServiceImpl implements FeedSyncService {
             rawJson = feedClient.fetchLimits();
         } catch (FeedSyncException ex) {
             // HTTP/网络失败：只记 LIMITS FAILED，禁止空白 hash 留档
-            log.error("limits Feed 拉取失败: {}", ex.getMessage());
+            log.error("limits Feed 拉取失败: httpStatus={}, errorType={}",
+                    ex.getHttpStatus(), ex.getClass().getSimpleName());
             SyncResultDto failed = writeFailed(
                     SOURCE_TYPE_LIMITS, limitsUrl, null, null, ex.getMessage(), ex.getHttpStatus(), startedAt, null);
             return new LimitsArchive(STATUS_FAILED, null, failed.getSyncRecordId(), null, ex.getMessage(), null);
@@ -340,7 +370,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         try {
             gamedayId = parseLimitsGamedayId(json);
         } catch (JacksonException | IllegalArgumentException ex) {
-            log.error("limits JSON 解析失败: {}", ex.getMessage());
+            log.error("limits JSON 解析失败", ex);
             SyncResultDto failed = writeFailed(
                     SOURCE_TYPE_LIMITS, limitsUrl, contentHash, payloadId, ex.getMessage(), 200, startedAt, null);
             return new LimitsArchive(STATUS_FAILED, contentHash, failed.getSyncRecordId(), payloadId, ex.getMessage(), null);
@@ -348,7 +378,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
 
         if (gamedayId == null) {
             String missing = "limits JSON missing GamedayId";
-            log.error("limits 缺少 GamedayId");
+            log.warn("limits 缺少 GamedayId，跳过后续同步");
             SyncResultDto failed = writeFailed(
                     SOURCE_TYPE_LIMITS, limitsUrl, contentHash, payloadId, missing, 200, startedAt, null);
             return new LimitsArchive(STATUS_FAILED, contentHash, failed.getSyncRecordId(), payloadId, missing, null);
@@ -356,6 +386,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
 
         Long recordId = persistenceStore.saveSyncRecord(
                 newSyncRecord(SOURCE_TYPE_LIMITS, limitsUrl, contentHash, STATUS_SUCCESS, 200, null, startedAt, gamedayId));
+        log.info("limits 解析成功: gamedayId={}, recordId={}, payloadId={}", gamedayId, recordId, payloadId);
         return new LimitsArchive(STATUS_SUCCESS, contentHash, recordId, payloadId, null, gamedayId);
     }
 
@@ -389,6 +420,8 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         if (previous != null) {
             Long recordId = persistenceStore.saveSyncRecord(
                     newSyncRecord(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, STATUS_SKIPPED, 200, null, startedAt, gamedayId));
+            log.warn("题目内容未变化，跳过业务写入: gamedayId={}, recordId={}, payloadId={}",
+                    gamedayId, recordId, payloadId);
             return result(SOURCE_TYPE_QUESTIONS, STATUS_SKIPPED, contentHash, recordId, payloadId, null);
         }
 
@@ -397,10 +430,12 @@ public class FeedSyncServiceImpl implements FeedSyncService {
             String note = skippedQuestions > 0 ? "skippedQuestions=" + skippedQuestions : null;
             Long recordId = persistenceStore.saveSyncRecord(
                     newSyncRecord(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, STATUS_SUCCESS, 200, note, startedAt, gamedayId));
+            log.info("题目业务写入完成: gamedayId={}, recordId={}, payloadId={}, skippedQuestions={}",
+                    gamedayId, recordId, payloadId, skippedQuestions);
             return result(SOURCE_TYPE_QUESTIONS, STATUS_SUCCESS, contentHash, recordId, payloadId, note);
         } catch (JacksonException | IllegalArgumentException ex) {
             // 畸形 JSON：已留档，不写业务表，记 FAILED；其它运行时异常向外抛出以便事务回滚。
-            log.error("题目 JSON 解析失败: gamedayId={}, error={}", gamedayId, ex.getMessage());
+            log.error("题目 JSON 解析失败: gamedayId={}", gamedayId, ex);
             return writeFailed(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, payloadId, ex.getMessage(), 200, startedAt, gamedayId);
         }
     }
@@ -1069,7 +1104,13 @@ public class FeedSyncServiceImpl implements FeedSyncService {
                                       Integer gamedayId) {
         Long recordId = persistenceStore.saveSyncRecord(
                 newSyncRecord(sourceType, sourceUrl, contentHash, STATUS_FAILED, httpStatus, errorMessage, startedAt, gamedayId));
+        log.debug("同步失败已记审计: sourceType={}, gamedayId={}, recordId={}, httpStatus={}",
+                sourceType, gamedayId, recordId, httpStatus);
         return result(sourceType, STATUS_FAILED, contentHash, recordId, payloadId, errorMessage);
+    }
+
+    private static long elapsedMs(long startedAt) {
+        return Math.max(0L, System.currentTimeMillis() - startedAt);
     }
 
     private static SyncResultDto result(String sourceType, String status, String contentHash, Long recordId,

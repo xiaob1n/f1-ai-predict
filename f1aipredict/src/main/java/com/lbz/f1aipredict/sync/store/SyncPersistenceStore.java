@@ -7,8 +7,7 @@ import com.lbz.f1aipredict.sync.entity.FeedRawPayload;
 import com.lbz.f1aipredict.sync.entity.SyncRecord;
 import com.lbz.f1aipredict.sync.mapper.FeedRawPayloadMapper;
 import com.lbz.f1aipredict.sync.mapper.SyncRecordMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Component;
@@ -21,10 +20,9 @@ import java.util.Objects;
  * sync_record / feed_raw_payload 的唯一持久化入口。
  * 后续 FeedSyncService 只调用本 Store，禁止直接使用 Mapper。
  */
+@Slf4j
 @Component
 public class SyncPersistenceStore {
-
-    private static final Logger log = LoggerFactory.getLogger(SyncPersistenceStore.class);
 
     private final SyncRecordMapper syncRecordMapper;
     private final FeedRawPayloadMapper feedRawPayloadMapper;
@@ -64,14 +62,16 @@ public class SyncPersistenceStore {
 
         try {
             feedRawPayloadMapper.insert(payload);
+            log.debug("写入 Feed 留档: sourceType={}, gamedayId={}, payloadId={}",
+                    payload.getSourceType(), payload.getGamedayId(), payload.getId());
             return payload.getId();
         } catch (DuplicateKeyException ex) {
             // 唯一键冲突：返回已有记录 ID，不吞掉异常却不回读。
-            return resolveExistingPayloadId(contentHash, ex);
+            return resolveExistingPayloadId(payload.getSourceType(), payload.getGamedayId(), contentHash, ex);
         } catch (DataIntegrityViolationException ex) {
             // Spring 可能只抛包装后的 DataIntegrityViolationException，沿 cause 链识别重复键。
             if (isDuplicateKey(ex)) {
-                return resolveExistingPayloadId(contentHash, ex);
+                return resolveExistingPayloadId(payload.getSourceType(), payload.getGamedayId(), contentHash, ex);
             }
             throw ex;
         }
@@ -90,7 +90,9 @@ public class SyncPersistenceStore {
         if (contentHash == null || contentHash.isBlank()) {
             return null;
         }
-        return syncRecordMapper.selectLatestUnchanged(sourceType, contentHash);
+        SyncRecord latest = syncRecordMapper.selectLatestUnchanged(sourceType, contentHash);
+        log.debug("查询未变化同步记录: sourceType={}, found={}", sourceType, latest != null);
+        return latest;
     }
 
     /**
@@ -110,6 +112,9 @@ public class SyncPersistenceStore {
             record.setCreatedAt(now);
         }
         syncRecordMapper.insert(record);
+        log.debug("写入同步记录: sourceType={}, status={}, gamedayId={}, recordId={}, durationMs={}",
+                record.getSourceType(), record.getStatus(), record.getGamedayId(),
+                record.getId(), record.getDurationMs());
         return record.getId();
     }
 
@@ -139,7 +144,12 @@ public class SyncPersistenceStore {
             wrapper.eq("status", query.getStatus());
         }
         wrapper.orderByDesc("id");
-        return syncRecordMapper.selectPage(page, wrapper);
+        Page<SyncRecord> result = syncRecordMapper.selectPage(page, wrapper);
+        log.debug("分页查询同步记录: sourceType={}, gamedayId={}, status={}, page={}, size={}, total={}, rows={}",
+                query.getSourceType(), query.getGamedayId(), query.getStatus(),
+                query.getPage(), query.getSize(), result.getTotal(),
+                result.getRecords() == null ? 0 : result.getRecords().size());
+        return result;
     }
 
     /**
@@ -150,19 +160,24 @@ public class SyncPersistenceStore {
      */
     public FeedRawPayload findRawPayloadById(Long payloadId) {
         Objects.requireNonNull(payloadId, "payloadId must not be null");
-        return feedRawPayloadMapper.selectById(payloadId);
+        FeedRawPayload payload = feedRawPayloadMapper.selectById(payloadId);
+        log.debug("按主键读取 Feed 留档: payloadId={}, found={}", payloadId, payload != null);
+        return payload;
     }
 
     /**
      * 唯一键冲突后按 contentHash 回读已有主键。
      */
-    private Long resolveExistingPayloadId(String contentHash, DataIntegrityViolationException ex) {
+    private Long resolveExistingPayloadId(String sourceType, Integer gamedayId, String contentHash,
+                                          DataIntegrityViolationException ex) {
         FeedRawPayload existing = feedRawPayloadMapper.selectByContentHash(contentHash);
         if (existing == null || existing.getId() == null) {
+            log.error("Feed 留档唯一键冲突后回读失败: sourceType={}, gamedayId={}", sourceType, gamedayId, ex);
             throw new IllegalStateException(
-                    "Duplicate content_hash but existing feed_raw_payload not found: " + contentHash, ex);
+                    "Duplicate content_hash but existing feed_raw_payload not found", ex);
         }
-        log.info("feed_raw_payload 已存在，按 contentHash 返回已有 id: {}", existing.getId());
+        log.info("Feed 留档已存在，复用已有主键: sourceType={}, gamedayId={}, payloadId={}",
+                sourceType, gamedayId, existing.getId());
         return existing.getId();
     }
 

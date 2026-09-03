@@ -13,6 +13,7 @@ import com.lbz.f1aipredict.question.mapper.QuestionMapper;
 import com.lbz.f1aipredict.question.mapper.QuestionOptionMapper;
 import com.lbz.f1aipredict.question.mapper.QuestionSnapshotMapper;
 import com.lbz.f1aipredict.question.service.QuestionService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -28,6 +29,7 @@ import java.util.stream.Collectors;
  * <p>
  * 快照和选项统一批量加载，避免在 DTO 映射循环中访问 Mapper。
  */
+@Slf4j
 @Service
 public class QuestionServiceImpl implements QuestionService {
 
@@ -49,9 +51,13 @@ public class QuestionServiceImpl implements QuestionService {
     @Override
     public List<QuestionDto> listByRoundId(Long roundId, QuestionQuery query) {
         QuestionQuery effectiveQuery = query == null ? new QuestionQuery() : query;
+        log.debug("查询分站题目: roundId={}, status={}, gamedayId={}, snapshotId={}, includeOptions={}",
+                roundId, effectiveQuery.getStatus(), effectiveQuery.getGamedayId(),
+                effectiveQuery.getSnapshotId(), effectiveQuery.getIncludeOptions());
         List<Question> questions = questionMapper.selectByRound(
                 roundId, effectiveQuery.getStatus(), effectiveQuery.getGamedayId());
         if (questions.isEmpty()) {
+            log.debug("分站题目查询无结果: roundId={}", roundId);
             return Collections.emptyList();
         }
 
@@ -59,6 +65,8 @@ public class QuestionServiceImpl implements QuestionService {
         if (effectiveQuery.getSnapshotId() != null) {
             selectedSnapshot = snapshotMapper.selectById(effectiveQuery.getSnapshotId());
             if (selectedSnapshot == null) {
+                log.warn("指定快照不存在，列表返回空: roundId={}, snapshotId={}",
+                        roundId, effectiveQuery.getSnapshotId());
                 return Collections.emptyList();
             }
             Long selectedQuestionId = selectedSnapshot.getQuestionId();
@@ -66,6 +74,8 @@ public class QuestionServiceImpl implements QuestionService {
                     .filter(question -> Objects.equals(question.getId(), selectedQuestionId))
                     .collect(Collectors.toList());
             if (questions.isEmpty()) {
+                log.warn("指定快照不属于当前分站题目，列表返回空: roundId={}, snapshotId={}",
+                        roundId, effectiveQuery.getSnapshotId());
                 return Collections.emptyList();
             }
         }
@@ -99,6 +109,8 @@ public class QuestionServiceImpl implements QuestionService {
                     : Collections.emptyList();
             result.add(toQuestionDto(question, options));
         }
+        log.debug("分站题目查询完成: roundId={}, questionCount={}, optionSnapshotCount={}",
+                roundId, result.size(), optionsBySnapshotId.size());
         return result;
     }
 
@@ -107,23 +119,29 @@ public class QuestionServiceImpl implements QuestionService {
      */
     @Override
     public QuestionDetailDto getDetail(Long questionId) {
+        log.debug("查询题目详情: questionId={}", questionId);
         Question question = questionMapper.selectById(questionId);
         if (question == null) {
+            log.warn("题目不存在: questionId={}", questionId);
             throw new ResourceNotFoundException("Question not found: " + questionId);
         }
 
         Long latestSnapshotId = question.getLatestSnapshotId();
         // 数据库允许题目暂时没有最新快照，此时详情仍然可返回，但选项保持为空。
         if (latestSnapshotId == null) {
+            log.debug("题目详情无最新快照: questionId={}", questionId);
             return toQuestionDetailDto(question, Collections.emptyList());
         }
         List<QuestionSnapshot> snapshots = snapshotMapper.selectSnapshotByIds(
                 Collections.singletonList(latestSnapshotId));
         if (snapshots.isEmpty()) {
+            log.warn("题目最新快照不存在: questionId={}, snapshotId={}", questionId, latestSnapshotId);
             throw new ResourceNotFoundException("Snapshot not found: " + latestSnapshotId);
         }
         List<QuestionOptionDto> options = loadOptionsBySnapshotIds(Collections.singletonList(latestSnapshotId))
                 .getOrDefault(latestSnapshotId, Collections.emptyList());
+        log.debug("题目详情查询完成: questionId={}, snapshotId={}, optionCount={}",
+                questionId, latestSnapshotId, options.size());
         return toQuestionDetailDto(question, options);
     }
 
@@ -132,22 +150,28 @@ public class QuestionServiceImpl implements QuestionService {
      */
     @Override
     public QuestionSnapshotDto getSnapshot(Long questionId, Long snapshotId) {
+        log.debug("查询指定快照: questionId={}, snapshotId={}", questionId, snapshotId);
         Question question = questionMapper.selectById(questionId);
         if (question == null) {
+            log.warn("题目不存在: questionId={}", questionId);
             throw new ResourceNotFoundException("Question not found: " + questionId);
         }
 
         QuestionSnapshot snapshot = snapshotMapper.selectById(snapshotId);
         if (snapshot == null) {
+            log.warn("快照不存在: snapshotId={}", snapshotId);
             throw new ResourceNotFoundException("Snapshot not found: " + snapshotId);
         }
         if (!Objects.equals(snapshot.getQuestionId(), question.getId())) {
+            log.warn("快照不属于该题目: questionId={}, snapshotId={}", questionId, snapshotId);
             throw new ResourceNotFoundException(
                     "Snapshot does not belong to question: " + snapshotId + "/" + questionId);
         }
 
         List<QuestionOptionDto> options = loadOptionsBySnapshotIds(Collections.singletonList(snapshotId))
                 .getOrDefault(snapshotId, Collections.emptyList());
+        log.debug("指定快照查询完成: questionId={}, snapshotId={}, optionCount={}",
+                questionId, snapshotId, options.size());
         return toSnapshotDto(snapshot, options);
     }
 
@@ -156,13 +180,16 @@ public class QuestionServiceImpl implements QuestionService {
      */
     @Override
     public List<QuestionSnapshotDto> listSnapshots(Long questionId) {
+        log.debug("查询题目快照历史: questionId={}", questionId);
         Question question = questionMapper.selectById(questionId);
         if (question == null) {
+            log.warn("题目不存在: questionId={}", questionId);
             throw new ResourceNotFoundException("Question not found: " + questionId);
         }
 
         List<QuestionSnapshot> snapshots = snapshotMapper.selectByQuestionId(questionId);
         if (snapshots.isEmpty()) {
+            log.debug("题目快照历史为空: questionId={}", questionId);
             return Collections.emptyList();
         }
 
@@ -176,6 +203,7 @@ public class QuestionServiceImpl implements QuestionService {
             result.add(toSnapshotDto(snapshot,
                     optionsBySnapshotId.getOrDefault(snapshot.getId(), Collections.emptyList())));
         }
+        log.debug("题目快照历史查询完成: questionId={}, snapshotCount={}", questionId, result.size());
         return result;
     }
 
