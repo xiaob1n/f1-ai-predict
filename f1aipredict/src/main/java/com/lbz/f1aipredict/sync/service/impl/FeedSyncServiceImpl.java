@@ -1,6 +1,8 @@
 package com.lbz.f1aipredict.sync.service.impl;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lbz.f1aipredict.common.ResourceNotFoundException;
 import com.lbz.f1aipredict.question.entity.Question;
 import com.lbz.f1aipredict.question.entity.QuestionOption;
@@ -44,8 +46,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -148,6 +148,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         this.questionMapper = Objects.requireNonNull(questionMapper, "questionMapper must not be null");
         this.questionSnapshotMapper = Objects.requireNonNull(questionSnapshotMapper, "questionSnapshotMapper must not be null");
         this.questionOptionMapper = Objects.requireNonNull(questionOptionMapper, "questionOptionMapper must not be null");
+        // Boot 3.5.16 使用 Jackson 2；Feed 时间字段是字符串，这里只做 JSON 解析，无需 JavaTimeModule
         this.objectMapper = new ObjectMapper();
         this.self = this;
     }
@@ -207,8 +208,8 @@ public class FeedSyncServiceImpl implements FeedSyncService {
             log.info("赛程业务写入完成: recordId={}, payloadId={}, skippedSessions={}",
                     recordId, payloadId, skippedSessions);
             return result(SOURCE_TYPE_SCHEDULE, STATUS_SUCCESS, contentHash, recordId, payloadId, note);
-        } catch (JacksonException | IllegalArgumentException ex) {
-            // 畸形 JSON：已留档，不写业务表，记 FAILED；其它运行时异常向外抛出以便事务回滚。
+        } catch (JsonProcessingException | IllegalArgumentException ex) {
+            // 畸形 JSON（Jackson 2 受检 JsonProcessingException）：已留档，不写业务表，记 FAILED；其它运行时异常向外抛出以便事务回滚。
             log.error("赛程 JSON 解析失败", ex);
             return writeFailed(SOURCE_TYPE_SCHEDULE, sourceUrl, contentHash, payloadId, ex.getMessage(), 200, startedAt, null);
         }
@@ -369,7 +370,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         Integer gamedayId;
         try {
             gamedayId = parseLimitsGamedayId(json);
-        } catch (JacksonException | IllegalArgumentException ex) {
+        } catch (JsonProcessingException | IllegalArgumentException ex) {
             log.error("limits JSON 解析失败", ex);
             SyncResultDto failed = writeFailed(
                     SOURCE_TYPE_LIMITS, limitsUrl, contentHash, payloadId, ex.getMessage(), 200, startedAt, null);
@@ -433,8 +434,8 @@ public class FeedSyncServiceImpl implements FeedSyncService {
             log.info("题目业务写入完成: gamedayId={}, recordId={}, payloadId={}, skippedQuestions={}",
                     gamedayId, recordId, payloadId, skippedQuestions);
             return result(SOURCE_TYPE_QUESTIONS, STATUS_SUCCESS, contentHash, recordId, payloadId, note);
-        } catch (JacksonException | IllegalArgumentException ex) {
-            // 畸形 JSON：已留档，不写业务表，记 FAILED；其它运行时异常向外抛出以便事务回滚。
+        } catch (JsonProcessingException | IllegalArgumentException ex) {
+            // 畸形 JSON（Jackson 2 受检 JsonProcessingException）：已留档，不写业务表，记 FAILED；其它运行时异常向外抛出以便事务回滚。
             log.error("题目 JSON 解析失败: gamedayId={}", gamedayId, ex);
             return writeFailed(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, payloadId, ex.getMessage(), 200, startedAt, gamedayId);
         }
@@ -446,7 +447,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      *
      * @return 因缺少 round_id 等原因跳过的题目数
      */
-    private int upsertQuestions(String json, Integer gamedayId) {
+    private int upsertQuestions(String json, Integer gamedayId) throws JsonProcessingException {
         Long roundId = resolveRoundId(gamedayId);
         if (roundId == null) {
             log.warn("gamedayId={} 无对应 meeting_session，跳过全部题目", gamedayId);
@@ -481,7 +482,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     /**
      * 解析题目 Feed 原始 JSON。
      */
-    private QuestionsFeedResponse parseQuestionsResponse(String json) {
+    private QuestionsFeedResponse parseQuestionsResponse(String json) throws JsonProcessingException {
         return objectMapper.readValue(json, QuestionsFeedResponse.class);
     }
 
@@ -515,7 +516,8 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      * 单题幂等 upsert：新题则 INITIAL 快照；内容未变则只刷新 last_synced_at；
      * 内容变化则新增 CHANGED 快照并更新当前状态。
      */
-    private void upsertSingleQuestion(QuestionsFeedQuestion feedQuestion, Integer gamedayId, Long roundId) {
+    private void upsertSingleQuestion(QuestionsFeedQuestion feedQuestion, Integer gamedayId, Long roundId)
+            throws JsonProcessingException {
         String questionJson = objectMapper.writeValueAsString(feedQuestion);
         String contentHash = FeedSyncUtils.sha256Hex(questionJson);
 
@@ -695,7 +697,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      *
      * @return 因空白 session_key 等原因跳过的 Session 行数
      */
-    private int upsertBusinessTables(String json) {
+    private int upsertBusinessTables(String json) throws JsonProcessingException {
         RacedayFeedResponse response = objectMapper.readValue(json, RacedayFeedResponse.class);
         List<RacedayFeedSession> sessions = extractSessions(response);
         if (sessions.isEmpty()) {
@@ -981,7 +983,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      * 优先 Data.Value.GamedayId，再回退 Value / 根上的 CurrentGamedayId、currentGamedayId、gamedayId。
      * 禁止把 RaceId 当比赛日。
      */
-    Integer parseLimitsGamedayId(String json) {
+    Integer parseLimitsGamedayId(String json) throws JsonProcessingException {
         LimitsFeedResponse response = objectMapper.readValue(json, LimitsFeedResponse.class);
         if (response == null) {
             return null;
