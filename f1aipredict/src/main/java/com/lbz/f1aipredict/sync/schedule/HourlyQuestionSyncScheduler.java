@@ -12,10 +12,11 @@ import org.springframework.stereotype.Component;
 import java.util.UUID;
 
 /**
- * 每小时最新问题同步调度器。
+ * 每小时当前 Feed 同步调度器（limits + schedule + questions）。
  * <p>
  * 仅编排：每轮调用一次已有 {@link FeedSyncService#syncCurrent()}，
- * 不解析 gamedayId、不访问 Feed 客户端、不写数据库。
+ * 由服务内部按固定顺序完成 limits → schedule → questions。
+ * 本类不解析 gamedayId、不访问 Feed 客户端、不写数据库。
  * 由 {@code f1predict.sync.scheduler.enabled} 控制是否创建本 Bean；
  * 缺省视为开启，与生产 YAML 默认值一致。
  */
@@ -50,11 +51,13 @@ public class HourlyQuestionSyncScheduler {
     }
 
     /**
-     * 定时拉取并幂等保存最新问题。
+     * 定时触发当前 Feed 同步（limits + schedule + questions）。
      * <p>
      * 使用 {@code initialDelayString}：启动后先等待配置的延迟（默认 PT1H），不会立刻执行。
      * 使用 {@code fixedDelayString}：上一轮（含阻塞式同步）完成后再等待配置间隔（默认 PT1H），
-     * 单实例内不会与下一轮重叠。禁止使用 fixedRate。
+     * 单实例内不会与下一轮重叠。保留 fixedDelay 是为了防止上一轮尚未结束时下一轮叠加；
+     * 禁止改用 fixedRate 或 cron。
+     * 运行时异常必须在本方法内捕获：隔离失败轮次，避免打垮调度线程，使后续轮次仍可执行。
      */
     @Scheduled(
             initialDelayString = "${f1predict.sync.scheduler.initial-delay:PT1H}",
@@ -64,14 +67,15 @@ public class HourlyQuestionSyncScheduler {
         // 定时任务没有入站请求头，自行写入 MDC，便于与 HTTP 日志共用 requestId 模式
         MDC.put(RequestId.MDC_KEY, UUID.randomUUID().toString());
         try {
-            log.info("开始每小时最新问题同步");
+            log.info("开始每小时当前 Feed 同步");
             // 每轮只调用一次 syncCurrent，由服务内部完成 limits → schedule → questions
             SyncResultDto result = feedSyncService.syncCurrent();
             logSyncResult(result);
         } catch (RuntimeException ex) {
             // 隔离运行时异常，避免打垮调度线程；异常对象放最后参数以打印堆栈
-            log.error("每小时最新问题同步发生未处理运行时异常: durationMs={}", elapsedMs(startedAt), ex);
+            log.error("每小时当前 Feed 同步发生未处理运行时异常: durationMs={}", elapsedMs(startedAt), ex);
         } finally {
+            // 无论成功或失败都清理 MDC，避免 requestId 泄漏到后续调度轮次
             MDC.remove(RequestId.MDC_KEY);
         }
     }
@@ -84,31 +88,31 @@ public class HourlyQuestionSyncScheduler {
      */
     private void logSyncResult(SyncResultDto result) {
         if (result == null) {
-            log.warn("每小时最新问题同步返回空结果");
+            log.warn("每小时当前 Feed 同步返回空结果");
             return;
         }
         String status = result.getStatus();
         if (status == null || status.isBlank()) {
-            log.warn("每小时最新问题同步返回无法识别的状态: sourceType={}, status={}, gamedayId={}, errorMessage={}",
+            log.warn("每小时当前 Feed 同步返回无法识别的状态: sourceType={}, status={}, gamedayId={}, errorMessage={}",
                     result.getSourceType(), status, result.getGamedayId(), result.getErrorMessage());
             return;
         }
         if (STATUS_SUCCESS.equals(status)) {
-            log.info("每小时最新问题同步成功: sourceType={}, status={}, gamedayId={}, errorMessage={}",
+            log.info("每小时当前 Feed 同步成功: sourceType={}, status={}, gamedayId={}, errorMessage={}",
                     result.getSourceType(), status, result.getGamedayId(), result.getErrorMessage());
             return;
         }
         if (STATUS_SKIPPED_UNCHANGED.equals(status)) {
-            log.info("每小时最新问题同步跳过（内容未变化）: sourceType={}, status={}, gamedayId={}, errorMessage={}",
+            log.info("每小时当前 Feed 同步跳过（内容未变化）: sourceType={}, status={}, gamedayId={}, errorMessage={}",
                     result.getSourceType(), status, result.getGamedayId(), result.getErrorMessage());
             return;
         }
         if (STATUS_FAILED.equals(status)) {
-            log.error("每小时最新问题同步失败: sourceType={}, status={}, gamedayId={}, errorMessage={}",
+            log.error("每小时当前 Feed 同步失败: sourceType={}, status={}, gamedayId={}, errorMessage={}",
                     result.getSourceType(), status, result.getGamedayId(), result.getErrorMessage());
             return;
         }
-        log.warn("每小时最新问题同步返回无法识别的状态: sourceType={}, status={}, gamedayId={}, errorMessage={}",
+        log.warn("每小时当前 Feed 同步返回无法识别的状态: sourceType={}, status={}, gamedayId={}, errorMessage={}",
                 result.getSourceType(), status, result.getGamedayId(), result.getErrorMessage());
     }
 

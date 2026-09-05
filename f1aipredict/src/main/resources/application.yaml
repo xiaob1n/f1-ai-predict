@@ -22,7 +22,7 @@ f1predict:
     # 供后续 WebClient 使用；缺省与 F1PredictFeedProperties 字段默认值一致
     connect-timeout-ms: 5000
     read-timeout-ms: 10000
-  # 每小时最新问题同步：启动后等 1 小时首次执行，随后固定延迟 1 小时
+  # 每小时当前 Feed 同步：启动后等 1 小时首次执行，随后固定延迟 1 小时
   sync:
     scheduler:
       enabled: true          # 是否启用每小时问题同步定时任务
