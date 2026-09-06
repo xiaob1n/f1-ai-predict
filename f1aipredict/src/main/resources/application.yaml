@@ -12,6 +12,9 @@ spring:
     username: root
     password: lbz206718
     driver-class-name: com.mysql.cj.jdbc.Driver
+  rabbitmq:
+    host: 129.225.134.151
+    port: 5672
 
 # F1 Predict 官方 Feed 地址（禁止在业务代码中硬编码）
 f1predict:
