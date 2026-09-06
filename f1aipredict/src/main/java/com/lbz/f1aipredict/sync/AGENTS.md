@@ -1,6 +1,6 @@
 # sync 子域知识库
 
-生成日期：2026-09-03。本文件属未提交工作区变更，任何情况下不执行 git 提交。
+生成日期：2026-09-06。本文件属未提交工作区变更，任何情况下不执行 git 提交。
 范围仅 `com.lbz.f1aipredict.sync`。全局 DTO/实体/分页/错误规范见模块根 `AGENTS.md`，本文件只补充同步子域特有语义。
 
 ## 包地图与调用路径
@@ -41,7 +41,7 @@
 
 - `feed/*` 面向上游读取：`@JsonProperty` 用上游真实键（PascalCase `GamedayId`/`MeetingId`，混合键 `FOMMEETINGSESSIONKEY`），类级 `@JsonIgnoreProperties(ignoreUnknown = true)`。键名五花八门，禁止按 Java 字段名反推。
 - `dto/*` 面向客户端：每字段显式 `@JsonProperty("camelCase")`，值等于 Java 字段名（契约测试反射强制）。两类方向相反，勿混用。
-- 模块内自建解析用 `tools.jackson.databind.ObjectMapper`（Jackson 3）；DTO/feed 注解包保持 `com.fasterxml.jackson.annotation.*`。
+- 模块内自建解析用 `com.fasterxml.jackson.databind.ObjectMapper`（Jackson 2）；DTO/feed 注解包保持 `com.fasterxml.jackson.annotation.*`。
 
 ## 映射规则
 

@@ -1,11 +1,11 @@
 # f1aipredict 模块知识库
 
-生成日期：2026-09-03
+生成日期：2026-09-06
 维护规则：本文件属未提交工作区变更，任何情况下不执行 git 提交。仓库级规范以根 `AGENTS.md` 为准，本文件只补充模块内视角，不重复根知识库内容。
 
 ## 模块总览
 
-`f1aipredict` 是本仓库唯一 Maven 模块与唯一代码实现。Java 21、Spring Boot 4.1.1（parent）、Maven Wrapper（3.9.16）。Web 层用 Spring MVC；WebFlux 仅作为 WebClient 运行时服务 Feed 拉取，不承担 Controller 职责。持久化为 spring-jdbc + MySQL Connector/J + MyBatis-Plus 3.5.17；Lombok 生成样板；测试用 JUnit 5 + Mockito + MockWebServer。已落地运行态：`season`（仅实体/Mapper）、`question`（只读查询）、`sync`（最完整）。
+`f1aipredict` 是本仓库唯一 Maven 模块与唯一代码实现。Java 21、Spring Boot 3.5.16（parent）、Maven Wrapper（Maven 3.9.16）。Web 层用 Spring MVC；WebFlux 仅作为 WebClient 运行时服务 Feed 拉取，不承担 Controller 职责。持久化为 spring-jdbc + MySQL Connector/J + MyBatis-Plus 3.5.17；Lombok 生成样板；测试用 JUnit 5 + Mockito + MockWebServer。已落地运行态：`season`（只读查询）、`question`（只读查询）、`sync`（最完整）。
 
 ## 目录结构
 
@@ -16,7 +16,7 @@ f1aipredict/
 │   ├── F1aipredictApplication.java   # 启动入口：@SpringBootApplication + @EnableScheduling
 │   ├── common/    # 全局异常、RequestLoggingFilter/RequestId、ApiErrorResponse、ResourceNotFoundException
 │   ├── config/    # MybatisPlusConfig（MapperScan + 分页 + BlockAttack）
-│   ├── season/    # Season/Round/MeetingSession 实体 + Mapper，同步写入方，无查询 Service
+│   ├── season/    # Season/Round/MeetingSession 查询：controller/service/mapper/entity/dto
 │   ├── question/  # 题目查询：controller/service(+impl)/mapper/dto/entity
 │   └── sync/      # 同步域：controller/schedule/service/client/config/store/feed 模型等
 ├── src/main/resources/application.yaml  # 唯一运行配置
@@ -31,6 +31,7 @@ f1aipredict/
 |------|------|
 | 同步域实现细节（编排、幂等、客户端、Store） | `src/main/java/com/lbz/f1aipredict/sync/`，子知识库 `sync/AGENTS.md` |
 | 题目只读查询链路 | `src/main/java/com/lbz/f1aipredict/question/`，子知识库 `question/AGENTS.md` |
+| 赛季、分站与 Session 只读查询 | `src/main/java/com/lbz/f1aipredict/season/`，子知识库 `season/AGENTS.md` |
 | 测试约定、夹具与契约测试 | `src/test/`，子知识库 `src/test/AGENTS.md` |
 | 启动装配与 MyBatis 全局配置 | `F1aipredictApplication` + `config/MybatisPlusConfig` |
 | 对外错误体与请求日志 | `common/` |
@@ -42,7 +43,7 @@ f1aipredict/
 - 分层：Controller 只依赖 Service 接口、只返回 DTO；Service 分接口与 impl；`sync_record`/`feed_raw_payload` 只经 `SyncPersistenceStore` 访问。
 - 复用优先：已有 Service/Store/Client 能承担的职责不另写链路；Feed 拉取一律复用 `F1PredictFeedClient`。
 - 改动 Java 代码须补中文注释/Javadoc 说明意图，风格与现有代码一致。
-- Jackson 3 注意：Boot 4.1.1 内置 Jackson 3（`tools.jackson.*`），需要直接 `new ObjectMapper()` 或做序列化断言时用 `tools.jackson.databind.ObjectMapper`；DTO 与 Feed 模型的注解包保持 `com.fasterxml.jackson.annotation.*`。classpath 无 springdoc，不加 `@Operation`。
+- Jackson 2 注意：Boot 3.5.16 使用 `com.fasterxml.jackson.databind.ObjectMapper`；DTO 与 Feed 模型的注解包保持 `com.fasterxml.jackson.annotation.*`。classpath 无 springdoc，不加 `@Operation`。
 - DTO/实体注解约定（与根知识库一致）：DTO 每字段显式 `@JsonProperty("camelCase 名")`；实体 `@TableName` + `@TableId` + 非主键列 `@TableField("snake_case 列")`。新写字段照现有类抄即可，契约测试反射强制校验。
 - 测试与构建预期：普通单测与契约测试不连 MySQL（mock 或纯反射）；`./mvnw spring-boot:run` 才依赖 `application.yaml` 指向的真实 MySQL，本地无库启动即失败，属预期行为。
 - 工程没有任何 formatter/coverage/CI 配置，pom 除 spring-boot 插件外无额外检查插件；不要声称存在。

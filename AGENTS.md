@@ -1,7 +1,7 @@
 # AGENTS.md（仓库根知识库）
 
-生成日期：2026-09-03
-基线：commit `ece75d1`，branch `dev`
+生成日期：2026-09-06
+基线：commit `a4bf447`，branch `dev`
 维护规则：本文件属于未提交的工作区变更，任何情况下不执行 git 提交。
 
 ## 仓库边界
@@ -14,7 +14,7 @@
 
 ## 技术栈与运行态
 
-模块 `f1aipredict`：Spring Boot 4.1.1（parent）、Java 21、Spring Web MVC、WebFlux/WebClient（Feed 客户端）、Validation、spring-jdbc + MySQL Connector/J、MyBatis-Plus 3.5.17（`mybatis-plus-spring-boot4-starter` + jsqlparser）、Lombok、JUnit 5 + Mockito + MockWebServer。
+模块 `f1aipredict`：Spring Boot 3.5.16（parent）、Java 21、Spring Web MVC、WebFlux/WebClient（Feed 客户端）、Validation、spring-jdbc + MySQL Connector/J、MyBatis-Plus 3.5.17（`mybatis-plus-spring-boot3-starter` + jsqlparser）、Lombok、JUnit 5 + Mockito + MockWebServer。
 
 已实现运行态：`season`、`question`、`sync` 三个领域的基础层与读写链路，外加 `common`（全局异常、请求日志/requestId）与 `config`（MyBatis-Plus）。
 
@@ -47,7 +47,7 @@ question 域（只读查询）：
 `question/mapper/Question*Mapper`：注解 SQL 与 `@SelectProvider`，无 XML。
 `question/dto`：对外 DTO，`questionType` 当前固定 `UNKNOWN`。
 
-season 域：仅 `entity`（Season/Round/MeetingSession）+ `mapper`，由同步写入，尚无查询 Service/Controller。
+season 域：Season/Round/MeetingSession 的 Entity、Mapper、只读 Service 与 Controller；业务写入仍由 sync 域完成。
 
 common/config：
 `common/GlobalExceptionHandler`：`ResourceNotFoundException` → 404 `RESOURCE_NOT_FOUND`；`FeedSyncException` → 502 `FEED_SYNC_ERROR`；对外文案剥 URL。
@@ -95,7 +95,7 @@ Maven wrapper 不在仓库根，先进入 `f1aipredict/`：
 ## Gotchas
 
 - `application.yaml` 内含真实 MySQL 地址与账号口令，属敏感信息；不得复制进文档、日志、新代码或任何提交。
-- Boot 4.1.1 内置 Jackson 3（`tools.jackson.*`）。需要直接 `new ObjectMapper()` 或做序列化断言时用 `tools.jackson.databind.ObjectMapper`（自带 java.time 支持）。API DTO 与 Feed 模型的注解包保持现状 `com.fasterxml.jackson.annotation.*`。
+- 当前 Boot 3.5.16 使用 Jackson 2；直接使用 ObjectMapper 或做序列化断言时沿用 `com.fasterxml.jackson.databind.ObjectMapper`。API DTO 与 Feed 模型的注解包保持 `com.fasterxml.jackson.annotation.*`。
 - classpath 无 springdoc-openapi，v1 代码不添加 `@Operation` 等 OpenAPI 注解。
 - `F1PredictFeedClientTest` 用 MockWebServer 打桩，禁止向真实 f1predict 站点发请求。
 - 设计文档（如 `java-api-design.md`）部分是前瞻规划；与代码冲突时以代码、契约测试为准。

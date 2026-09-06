@@ -1,5 +1,7 @@
 # question/AGENTS.md（题目只读查询域专属知识库）
 
+生成日期：2026-09-06
+
 范围：只约束 `com.lbz.f1aipredict.question` 只读查询链路。仓库全局约定见根 `AGENTS.md`，模块视角见 `f1aipredict/AGENTS.md`，表结构见 `sql/AGENTS.md`（`003_question.sql`）。此处只写本子域边界，不重复上述内容。
 
 ## 域定位
@@ -62,5 +64,5 @@
 
 - controller：`QuestionControllerTest`（standalone MockMvc + mock Service + 真实 `GlobalExceptionHandler`）：四路由 JSON 形状、`@ModelAttribute` 绑定与 `includeOptions` 默认、404 错误体、POST 405 写保护、无 success 包装。
 - service：`QuestionServiceImplTest`（Mockito）：批量 Mapper 调用恰一次、空列表/404 各分支、快照归属校验、`hasRawJson` 推导、选项分组不去重。
-- dto：`QuestionDtoJsonTest`（`tools.jackson` ObjectMapper + 反射）：每字段同名显式 `@JsonProperty`、无 `rawJson` 字段、字段集合/类型精确、序列化形状对齐 `java-api-design.md` 2.1（questionType=UNKNOWN）、`options` 恒为数组。
+- dto：`QuestionDtoJsonTest`（Jackson 2 ObjectMapper + 反射）：每字段同名显式 `@JsonProperty`、无 `rawJson` 字段、字段集合/类型精确、序列化形状对齐 `java-api-design.md` 2.1（questionType=UNKNOWN）、`options` 恒为数组。
 - mapper/entity：`QuestionPersistenceContractTest`（纯反射）：`@TableName`/`@TableId(AUTO)`/字段精确类型、Mapper 方法签名与注解、SQL 脚本空集短路与排序分支。
