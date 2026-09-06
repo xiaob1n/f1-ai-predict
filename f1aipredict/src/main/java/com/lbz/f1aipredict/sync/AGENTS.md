@@ -9,7 +9,7 @@
 - HTTP 路径：`SyncAdminController`（`/api/v1/admin/sync/*`）→ `FeedSyncService` 接口 → `FeedSyncServiceImpl`。Controller 只返回 DTO，不建 WebClient、不触 Mapper。
 - 定时路径：`HourlyQuestionSyncScheduler`（`@Scheduled fixedDelay`）每轮只调一次 `syncCurrent()`，自带 requestId 与运行时异常捕获，不打垮调度线程。
 - 编排内部分工：拉取走 `F1PredictFeedClient`；审计/留档走 `SyncPersistenceStore`；season/question 业务表直写各自域 Mapper。
-- 当前 season/question 业务表的写入集中在 sync；season 仅提供 Mapper/Entity，question 另有独立只读查询链路，不要在 sync 内复制其查询 Service。
+- 当前 season/question 业务表的写入集中在 sync；两域另有独立只读查询 Service，不要在 sync 内复制其查询链路。
 
 ## 复用边界
 
