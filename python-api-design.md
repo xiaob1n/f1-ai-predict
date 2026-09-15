@@ -7,7 +7,7 @@
 > - 当前 `f1aipredict` Java 源码（`season`、`question`、`sync` 三个已落地领域）
 > - 2026-09 检索到的 LangChain / Qdrant 官方集成结论（`langchain-qdrant` 伙伴包、`QdrantVectorStore`、`RetrievalMode`、`with_structured_output`、Qdrant 异步客户端与 payload 过滤）
 >
-> **当前状态警告**：Java 端目前只实现 `season`、`question`、`sync` 三个领域，`prediction`、`scoring`、`statistics` 只有建表 SQL（`004`、`005`），尚无 Java 实现；RabbitMQ、Redis、Python Worker、RAG、Qdrant 与模型服务全部属于规划，尚未实现。本文档描述的 Python 包结构、REST 接口、队列契约和向量检索全部是设计稿，阅读与评审时不得当作已落地功能，也不得据此声称系统已具备预测能力。模型训练不在当前接口范围内。
+> **当前状态警告**：Java 端已实现 `season`、`question`、`sync` 三个领域，`prediction`、`scoring`、`statistics` 只有建表 SQL（`004`、`005`），尚无 Java 实现。Python Worker 已完成阶段一工程骨架、运维 REST 接口、消息 DTO、统一错误处理、请求 ID、结构化日志和本地 TraceSink；RabbitMQ 运行链路、预测、RAG、Qdrant、模型服务仍未实现。本文档中未标记的内容仍属于设计稿，不得据此声称系统已具备预测能力。模型训练不在当前接口范围内。
 
 ## 一、接口分层与包结构
 
@@ -80,7 +80,7 @@ f1_predict
 
 Python 端 REST 接口全部只监听 `127.0.0.1` 或家庭主机 Docker 内网，不经过公网反向代理，不暴露到家庭外网。这些接口供本机运维、开发调试与 Java 运维脚本通过 Tailscale 私网按需调用，不属于生产预测主链路。
 
-### 3.1 存活检查
+### [x] 3.1 存活检查
 
 ```http
 GET /health/live
@@ -94,7 +94,7 @@ GET /health/live
 }
 ```
 
-### 3.2 就绪检查
+### 3.2 就绪检查（占位实现，未完成）
 
 ```http
 GET /health/ready
@@ -136,7 +136,7 @@ GET /api/v1/models/current
 }
 ```
 
-### 3.4 Worker 状态
+### 3.4 Worker 状态（占位运行态，未完成）
 
 ```http
 GET /api/v1/worker/status
@@ -189,7 +189,7 @@ POST /predict
 
 本节列出现有 Java 已实现的 REST 接口，供 Python 团队在开发期联调、构造回放数据或排查问题时使用。**生产环境 Java 应在内部复用 `SeasonService`、`RoundService`、`MeetingSessionService`、`QuestionService` 组装 RabbitMQ 消息，Python 不需要回调这些 REST 接口。**
 
-### 4.1 赛季接口（`SeasonController`）
+### [x] 4.1 赛季接口（`SeasonController`）
 
 ```text
 GET /api/v1/seasons/current
@@ -198,7 +198,7 @@ GET /api/v1/seasons
 
 `/api/v1/seasons` 支持 `status`、`page`（0-based，默认 0）、`size`（默认 20，上限 100）。
 
-### 4.2 分站接口（`RoundController`）
+### [x] 4.2 分站接口（`RoundController`）
 
 ```text
 GET /api/v1/rounds/current
@@ -206,7 +206,7 @@ GET /api/v1/rounds/{roundId}
 GET /api/v1/seasons/{seasonId}/rounds
 ```
 
-### 4.3 Session 接口（`MeetingSessionController`）
+### [x] 4.3 Session 接口（`MeetingSessionController`）
 
 ```text
 GET /api/v1/rounds/{roundId}/sessions
@@ -217,7 +217,7 @@ GET /api/v1/sessions/by-meeting-key/{meetingKey}
 
 `sessionKey` 唯一，未命中返回 404；`meetingKey` 非唯一，未命中返回空数组。
 
-### 4.4 题目接口（`QuestionController`）
+### [x] 4.4 题目接口（`QuestionController`）
 
 ```text
 GET /api/v1/rounds/{roundId}/questions
@@ -228,7 +228,7 @@ GET /api/v1/questions/{questionId}/snapshots
 
 `/api/v1/rounds/{roundId}/questions` 支持 `status`、`gamedayId`、`includeOptions`（默认 true）、`snapshotId`；选项、快照在 Service 内批量加载，无 N+1。
 
-### 4.5 同步管理接口（`SyncAdminController`）
+### [x] 4.5 同步管理接口（`SyncAdminController`）
 
 ```text
 POST /api/v1/admin/sync/schedule
@@ -780,7 +780,7 @@ class IdempotencyStore(Protocol):
         ...
 ```
 
-### 6.10 TraceSink
+### 6.10 TraceSink（阶段一本地实现）
 
 ```python
 from __future__ import annotations
@@ -812,9 +812,11 @@ class TraceSink(Protocol):
         ...
 ```
 
+阶段一已实现本地 `TraceRecord`、`TraceSpan` 和 `ConsoleTraceSink`，支持关联字段记录与 Span 生命周期；跨服务追踪、持久化、指标和实际预测链路尚未实现。
+
 ## 七、Pydantic DTO 规范
 
-### 7.1 命名与别名
+### [x] 7.1 命名与别名
 
 Python 属性一律 snake_case，线上 JSON 一律 camelCase 别名。采用 Pydantic v2 配置：
 
@@ -850,13 +852,13 @@ class PredictionResultMessage(BaseModel):
     raw_agent_response: dict[str, Any] | None = Field(alias="rawAgentResponse", default=None)
 ```
 
-### 7.2 强制规则
+### [x] 7.2 强制规则（已实现的 DTO 契约部分）
 
-1. 时间字段一律使用严格时区感知的 `datetime`（`datetime.UTC`），线上格式为 ISO 8601 带 `Z`；反序列化收到 naive datetime 直接拒绝。
-2. `confidence` 用 `Field(ge=0.0, le=1.0)` 限定边界，越界拒绝。
-3. `extra="forbid"`：未知字段直接报错，防止 Java 新增字段被静默吞掉导致跨端契约漂移。
-4. 序列化只输出 camelCase 别名，任何场景不得在线上 JSON 出现 snake_case 键。
-5. 消息 DTO 与六节的 Protocol 一一对应；`rawAgentResponse` 只做留档，不参与业务校验。
+- [x] 时间字段一律使用严格时区感知的 `datetime`（`datetime.UTC`），线上格式为 ISO 8601 带 `Z`；反序列化收到 naive datetime 直接拒绝。
+- [x] `confidence` 用 `Field(ge=0.0, le=1.0)` 限定边界，越界拒绝。
+- [x] `extra="forbid"`：未知字段直接报错，防止 Java 新增字段被静默吞掉导致跨端契约漂移。
+- [x] 序列化只输出 camelCase 别名，任何场景不得在线上 JSON 出现 snake_case 键。
+- [ ] 消息 DTO 与第六节的 Protocol 一一对应（Protocol 运行时实现尚未完成）；`rawAgentResponse` 仅作为 DTO 留档字段。
 
 ## 八、RAG 与向量数据库接口
 
@@ -1128,11 +1130,11 @@ class PromptDefinition(BaseModel):
 | Java `season` / `question` / `sync` | 已实现（REST + Service + Mapper + 契约测试） | 稳定扩展 | 第四节描述其可复用接口 |
 | Java `prediction` / `scoring` / `statistics` | 仅 `004` / `005` 建表，无实现 | 待开发 | 消息契约按 `004` 字段对齐 |
 | RabbitMQ / Redis | 未实现 | 待开发 | 第五、十三节定义契约与可靠性 |
-| Python Worker | 未实现 | 待开发 | 本文档核心设计对象 |
+| Python Worker | 阶段一骨架已实现：运维 REST、消息 DTO、本地 TraceSink；预测、外部依赖和消息链路未实现 | 待开发 | 本文档核心设计对象 |
 | MongoDB（OpenF1 落地区） | 项目分析确认已保存 OpenF1 数据，具体集合与运行环境不在本仓库实现 | 持续完善采集元数据、索引与备份 | 第二、八节定义边界 |
 | Qdrant / RAG | 未实现 | 待开发 | 第八节定义检索契约 |
 | 模型服务 | 未实现 | 待开发 | 第九节定义在线推理接口 |
-| Python 轻量 REST / 健康接口 | 未实现 | 待开发 | 第三节定义 |
+| Python 轻量 REST / 健康接口 | `/health/live` 已实现；`/health/ready` 与 `/api/v1/worker/status` 为占位实现；模型接口未实现 | 待开发 | 第三节定义 |
 
 ## 十三、可靠性与安全
 
@@ -1169,9 +1171,9 @@ class PromptDefinition(BaseModel):
 
 ## 十四、推荐的首版开发顺序
 
-1. Python 工程骨架：包结构、日志、配置与 `TraceSink`。
-2. 轻量 REST：`/health/live`、`/health/ready`、`/api/v1/worker/status`。
-3. 消息 DTO：Pydantic 规范落地，含 camelCase 别名与契约测试。
+1. [x] Python 工程骨架：包结构、日志、配置与本地 `TraceSink`。
+2. 轻量 REST：`/health/live` 已完成；`/health/ready` 和 `/api/v1/worker/status` 仍为占位实现。
+3. [x] 消息 DTO：Pydantic 规范落地，含 camelCase 别名与契约测试。
 4. RabbitMQ 连接与任务消费骨架：手动 ACK、发布者确认、`IdempotencyStore` 占位。
 5. 无检索基线链路：题目文本 + 选项直接经 `ModelGateway` 输出结构化 JSON，先打通端到端。
 6. `FeatureRepository`：只读本地 MongoDB，截止时间过滤。

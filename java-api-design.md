@@ -4,7 +4,7 @@
 > - `f1-ai-predict-feasibility-analysis.md`（项目可行性分析，2026-08-27）
 > - `sql/002_season_round.sql`、`sql/003_question.sql`、`sql/004_prediction.sql`、`sql/005_answer_scoring.sql`、`sql/006_sync.sql`
 >
-> 当前 `f1aipredict` 项目只有 Spring Boot 启动类和 MyBatis-Plus 配置，尚未存在可复用的 Controller、Service 或 Mapper，因此 Java 端接口按以下方案从零建设。
+> 当前实现状态：`season`、`question`、`sync`、`common`、`config` 已有源码和测试；`prediction` 已实现预测批次/任务的创建与只读查询，其中创建仅完成 `PENDING` 原子落库。`scoring`、`statistics`、`messaging` 以及预测结果、锁定等后续链路尚未实现。下文以 `[x]` 标记已完成的设计项，未标记项仍属于规划或部分实现。
 
 ## 一、接口分层
 
@@ -27,7 +27,7 @@ com.lbz.f1aipredict
 └── common
 ```
 
-Java 是业务数据唯一管理方；Python 不直接访问 MySQL，预测任务通过 RabbitMQ 完成。
+Java 是业务数据唯一管理方；Python 不直接访问 MySQL。预测任务后续规划通过 RabbitMQ 处理，当前消息发布与结果消费尚未实现。
 
 ## 二、REST 接口
 
@@ -35,7 +35,7 @@ Java 是业务数据唯一管理方；Python 不直接访问 MySQL，预测任�
 
 对应数据表：`season`、`round`、`meeting_session`
 
-#### 1.1 查询当前赛季
+#### [x] 1.1 查询当前赛季
 
 ```http
 GET /api/v1/seasons/current
@@ -54,7 +54,7 @@ GET /api/v1/seasons/current
 }
 ```
 
-#### 1.2 查询赛季列表
+#### [x] 1.2 查询赛季列表
 
 ```http
 GET /api/v1/seasons
@@ -68,19 +68,19 @@ page=0
 size=20
 ```
 
-#### 1.3 查询赛季下的分站
+#### [x] 1.3 查询赛季下的分站
 
 ```http
 GET /api/v1/seasons/{seasonId}/rounds
 ```
 
-#### 1.4 查询分站详情
+#### [x] 1.4 查询分站详情
 
 ```http
 GET /api/v1/rounds/{roundId}
 ```
 
-#### 1.5 查询当前分站
+#### 1.5 查询当前分站（基础查询已实现，预测/评分状态未实现）
 
 ```http
 GET /api/v1/rounds/current
@@ -98,13 +98,13 @@ GET /api/v1/rounds/current
 - 是否已经锁定预测
 - 是否已经完成评分
 
-#### 1.6 查询分站下的 Session
+#### [x] 1.6 查询分站下的 Session
 
 ```http
 GET /api/v1/rounds/{roundId}/sessions
 ```
 
-#### 1.7 查询 Session 详情
+#### [x] 1.7 查询 Session 详情
 
 ```http
 GET /api/v1/sessions/{sessionId}
@@ -121,7 +121,7 @@ GET /api/v1/sessions/by-meeting-key/{meetingKey}
 
 对应数据表：`question`、`question_snapshot`、`question_option`
 
-#### 2.1 查询分站题目
+#### [x] 2.1 查询分站题目
 
 ```http
 GET /api/v1/rounds/{roundId}/questions
@@ -163,19 +163,19 @@ snapshotId=10
 }
 ```
 
-#### 2.2 查询题目详情
+#### [x] 2.2 查询题目详情
 
 ```http
 GET /api/v1/questions/{questionId}
 ```
 
-#### 2.3 查询题目指定快照
+#### [x] 2.3 查询题目指定快照
 
 ```http
 GET /api/v1/questions/{questionId}/snapshots/{snapshotId}
 ```
 
-#### 2.4 查询题目快照历史
+#### [x] 2.4 查询题目快照历史
 
 ```http
 GET /api/v1/questions/{questionId}/snapshots
@@ -203,7 +203,7 @@ GET /api/v1/questions/{questionId}/answer
 
 这些接口属于管理接口，首版可通过 Swagger 使用，不需要单独开发管理后台。
 
-#### 3.1 同步赛程 Feed
+#### [x] 3.1 同步赛程 Feed
 
 ```http
 POST /api/v1/admin/sync/schedule
@@ -219,13 +219,13 @@ POST /api/v1/admin/sync/schedule
 6. 幂等更新 `meeting_session`
 7. 写入 `sync_record`
 
-#### 3.2 同步当前限制配置
+#### [x] 3.2 同步当前限制配置
 
 ```http
 POST /api/v1/admin/sync/limits
 ```
 
-#### 3.3 同步指定轮次题目
+#### [x] 3.3 同步指定轮次题目
 
 ```http
 POST /api/v1/admin/sync/questions/{gamedayId}
@@ -241,13 +241,13 @@ POST /api/v1/admin/sync/questions/{gamedayId}
 6. 保存该快照下的 `question_option`
 7. 写入 `sync_record`
 
-#### 3.4 同步全部当前 Feed
+#### [x] 3.4 同步全部当前 Feed
 
 ```http
 POST /api/v1/admin/sync/current
 ```
 
-#### 3.5 查询同步记录
+#### [x] 3.5 查询同步记录
 
 ```http
 GET /api/v1/admin/sync/records
@@ -263,7 +263,7 @@ page=0
 size=20
 ```
 
-#### 3.6 查询原始 Feed 响应
+#### [x] 3.6 查询原始 Feed 响应
 
 ```http
 GET /api/v1/admin/sync/raw-payloads/{payloadId}
@@ -301,8 +301,9 @@ POST /api/v1/rounds/{roundId}/prediction-batches
 4. 创建 `prediction_batch`
 5. 为每道题创建一条 `prediction_job`
 6. 生成唯一 `predictionJobId`
-7. 发布 RabbitMQ 预测任务
-8. 更新批次状态为 `TASK_CREATED`
+
+当前 Java 实现到第 6 步为止：批次和任务均以 `PENDING` 状态原子落库，成功返回 HTTP 201。
+RabbitMQ 预测任务发布以及将批次更新为 `TASK_CREATED` 尚未实现，不应从 201 响应推断消息已经投递。
 
 返回示例：
 
@@ -310,7 +311,7 @@ POST /api/v1/rounds/{roundId}/prediction-batches
 {
   "batchId": 1,
   "roundId": 10,
-  "status": "TASK_CREATED",
+  "status": "PENDING",
   "questionCount": 4,
   "jobIds": [
     "a7c1...",
@@ -335,7 +336,9 @@ POST /api/v1/rounds/{roundId}/prediction-batches
 GET /api/v1/prediction-batches/{batchId}
 ```
 
-返回：批次状态、分站信息、题目总数、已完成数量、失败数量、数据截止时间、创建时间、锁定时间。
+当前 Java 接口返回 `PredictionBatchDetailDto` 字段：`batchId`、`roundId`、`batchNo`、`status`、`questionCount`、`dataCutoff`、`createdAt`、`updatedAt`，以及嵌套的 `statusCounts`（`pendingCount`、`runningCount`、`retryingCount`、`succeededCount`、`failedCount`、`deadLetterCount`、`unknownCount`）。
+
+当前 DTO 不包含锁定时间或扩展分站信息；也不返回尚未实现的结果或评分信息。
 
 ### 4.3 查询批次任务列表
 
@@ -343,11 +346,15 @@ GET /api/v1/prediction-batches/{batchId}
 GET /api/v1/prediction-batches/{batchId}/jobs
 ```
 
+支持 `status`、0-based `page`、`size` 查询参数；`size` 在 Controller 与 Service 边界裁剪，最大为 100。
+
 ### 4.4 查询单个预测任务
 
 ```http
 GET /api/v1/prediction-jobs/{predictionJobId}
 ```
+
+路径参数使用公开业务键 `predictionJobId`，不暴露数据库自增主键。
 
 返回示例：
 
@@ -655,6 +662,8 @@ public interface SeasonService {
 }
 ```
 
+- [x] 已实现 `SeasonService` 的当前赛季查询和分页查询。
+
 ```java
 public interface RoundService {
     RoundDto getCurrentRound();
@@ -663,6 +672,8 @@ public interface RoundService {
     List<MeetingSessionDto> listSessions(Long roundId);
 }
 ```
+
+- [x] 已实现 `RoundService` 的当前分站、按 ID、按赛季和 Session 查询。
 
 ```java
 public interface QuestionService {
@@ -673,6 +684,8 @@ public interface QuestionService {
 }
 ```
 
+- [x] 已实现 `QuestionService` 的题目、详情、指定快照和快照历史查询。
+
 ```java
 public interface FeedSyncService {
     SyncResult syncSchedule();
@@ -682,6 +695,8 @@ public interface FeedSyncService {
     PageResult<SyncRecordDto> pageRecords(SyncRecordQuery query);
 }
 ```
+
+- [x] 已实现 `FeedSyncService` 的赛程、限制配置、题目、当前 Feed 同步及同步记录分页查询；原始响应查询也已实现。
 
 ```java
 public interface PredictionBatchService {
@@ -784,22 +799,22 @@ LOCKED / SETTLING / SETTLED
 
 ## 十、DTO 设计要求
 
-后续真正编写 Java DTO 时，需要遵守以下规则：
+后续编写尚未实现的预测结果 DTO 时，需要遵守以下规则：
 
 ```java
 @Data
 public class PredictionResultDto {
 
-    @JsonProperty("prediction_job_id")
+    @JsonProperty("predictionJobId")
     private String predictionJobId;
 
-    @JsonProperty("question_id")
+    @JsonProperty("questionId")
     private Long questionId;
 
-    @JsonProperty("selected_options")
+    @JsonProperty("selectedOptions")
     private List<PredictionResultItemDto> selectedOptions;
 
-    @JsonProperty("source_data_cutoff")
+    @JsonProperty("sourceDataCutoff")
     private Instant sourceDataCutoff;
 
     @JsonProperty("model")
@@ -809,22 +824,22 @@ public class PredictionResultDto {
 
 要求：
 
-- 所有 DTO 字段增加 `@JsonProperty`
-- 所有请求体使用 `@Valid`
-- 时间统一使用 UTC
-- 分页使用 0-based
-- 分页 `size` 最大不超过 100
-- `confidence` 限制在 `0~1`
-- `predictionJobId` 必须作为幂等键
-- 不直接对外返回 Entity
-- 不把 RabbitMQ、Redis 作为最终业务数据源
+- [x] 已实现 DTO 的所有字段增加 `@JsonProperty`，并使用 camelCase 名称
+- [x] 已实现的创建预测批次请求体使用 `@Valid @RequestBody CreatePredictionBatchRequest`
+- [x] 已实现时间字段统一使用 UTC
+- [x] 已实现分页使用 0-based
+- [x] 已实现分页 `size` 最大不超过 100
+- [ ] `confidence` 限制在 `0~1`（预测结果 DTO 尚未实现）
+- [ ] `predictionJobId` 必须作为消息消费幂等键（消息发布与结果消费链路尚未实现）
+- [x] 已实现接口不直接对外返回 Entity
+- [ ] RabbitMQ、Redis 不作为最终业务数据源（相关运行链路尚未实现）
 
 ## 推荐的首版开发顺序
 
-1. 赛季、分站、Session 查询接口
-2. Feed 同步接口
-3. 题目和快照查询接口
-4. 预测批次创建和任务查询接口
+1. [x] 赛季、分站、Session 基础查询接口
+2. [x] Feed 同步接口
+3. [x] 题目和快照查询接口
+4. [x] 预测批次创建和任务查询接口（创建仅完成批次与任务 `PENDING` 原子落库）
 5. RabbitMQ 预测任务发布与结果消费
 6. 预测结果查询和锁定接口
 7. 官方答案同步

@@ -5,8 +5,13 @@ import com.lbz.f1aipredict.sync.FeedSyncException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.BindException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 全局异常处理器。
@@ -14,7 +19,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * 通过 {@link RestControllerAdvice} 统一捕获 REST 控制器抛出的业务异常，
  * 并转换为稳定、安全的 HTTP 响应结构（{@link ApiErrorResponse}），
  * 避免将 SQL、堆栈、内部类名或外部 Feed URL 等敏感信息暴露给客户端。
- * 未注册的异常（如 {@link IllegalStateException}）不映射为本 advice 的 404 / 502。
+ * 未注册的异常（如 {@link IllegalStateException}）不映射为本 advice 的 404 / 400 / 502。
  */
 @Slf4j
 @RestControllerAdvice
@@ -22,6 +27,9 @@ public class GlobalExceptionHandler {
 
     /** 对外稳定摘要：无上游 HTTP 状态时使用 */
     private static final String FEED_SYNC_FAILED = "Feed sync failed";
+
+    /** 对外固定安全摘要：非法请求不回显底层原文 */
+    private static final String INVALID_REQUEST_MESSAGE = "Invalid request";
 
     /**
      * 处理资源未找到异常。
@@ -41,6 +49,40 @@ public class GlobalExceptionHandler {
                 .message(ex.getMessage())
                 .build();
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    /**
+     * 处理非法请求。
+     * <p>
+     * 将 {@link InvalidRequestException} 映射为 HTTP 400，
+     * 并返回统一错误码 {@code INVALID_REQUEST}。
+     * 对外 message 固定为安全摘要，不回显异常原文、URL、SQL、内部类名或堆栈。
+     *
+     * @param ex 非法请求异常
+     * @return HTTP 400 + 统一错误响应体
+     */
+    @ExceptionHandler(InvalidRequestException.class)
+    public ResponseEntity<ApiErrorResponse> handleInvalidRequest(InvalidRequestException ex) {
+        log.info("非法请求: errorType={}, causeType={}",
+                ex.getClass().getSimpleName(), causeType(ex));
+        ApiErrorResponse body = ApiErrorResponse.builder()
+                .code("INVALID_REQUEST")
+                .message(INVALID_REQUEST_MESSAGE)
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    /** 将 Bean Validation、JSON 反序列化和参数绑定失败统一转换为安全 400。 */
+    @ExceptionHandler({MethodArgumentNotValidException.class, HttpMessageNotReadableException.class,
+            BindException.class, MissingServletRequestParameterException.class,
+            MethodArgumentTypeMismatchException.class})
+    public ResponseEntity<ApiErrorResponse> handleBindingFailure(Exception ex) {
+        log.info("请求绑定失败: errorType={}", ex.getClass().getSimpleName());
+        ApiErrorResponse body = ApiErrorResponse.builder()
+                .code("INVALID_REQUEST")
+                .message(INVALID_REQUEST_MESSAGE)
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
     /**
