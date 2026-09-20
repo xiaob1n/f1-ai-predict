@@ -1,0 +1,42 @@
+# F1 AI Predict Python Worker 工程清单：定义包元数据、构建后端与依赖。
+# 本阶段只建立可安装骨架，不实现配置、日志、REST 或消息 DTO。
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "f1-predict"
+version = "0.1.0"
+description = "F1 AI Predict Python Worker 工程骨架"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "pydantic",
+    "pydantic-settings",
+    "structlog",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "httpx",
+    "mypy",
+    "pytest",
+    "ruff",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/f1_predict"]
+
+[tool.mypy]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+]
