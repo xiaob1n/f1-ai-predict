@@ -1,60 +1,18 @@
-server:
-  port: 7777
-
 spring:
   application:
     name: f1aipredict
-  output:
-    ansi:
-      enabled: always
-  datasource:
-    url: jdbc:mysql://129.225.134.151:3306/f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
-    username: root
-    password: lbz206718
-    driver-class-name: com.mysql.cj.jdbc.Driver
-  rabbitmq:
-    host: 129.225.134.151
-    port: 5672
-    username: lbz
-    password: lbz206718
-    stream:
-      virtual-host: "f1_ai_predict"
 
-
-# F1 Predict 官方 Feed 地址（禁止在业务代码中硬编码）
-f1predict:
-  feed:
-    base-url: https://f1predict.formula1.com
-    schedule-path: /feeds/schedule/raceday_en.json
-    limits-path: /feeds/limits/constraints.json
-    questions-path: /feeds/questions/questions_{gamedayId}_en.json
-    mix-api-path: /feeds/live/mixapi.json
-    web-config-path: /feeds/apps/web_config.json
-    # 供后续 WebClient 使用；缺省与 F1PredictFeedProperties 字段默认值一致
-    connect-timeout-ms: 5000
-    read-timeout-ms: 10000
-  # 每小时当前 Feed 同步：启动后等 1 小时首次执行，随后固定延迟 1 小时
-  sync:
-    scheduler:
-      enabled: true          # 是否启用每小时问题同步定时任务
-      initial-delay: PT1H    # 应用启动后首次执行延迟（ISO-8601 Duration 格式，1小时）
-      fixed-delay: PT1H      # 上一次执行完成后到下一次执行开始的固定间隔（ISO-8601 Duration 格式，1小时）
-
-logging:
-  include-application-name: true
-  level:
-    root: INFO
-    com.lbz.f1aipredict: INFO
-  pattern:
-    correlation: "[%X{requestId:-}] "
-
-mybatis-plus:
-  mapper-locations: classpath*:mapper/**/*.xml
-  type-aliases-package: com.lbz.f1aipredict.entity
-  configuration:
-    map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
-  global-config:
-    banner: true
-    db-config:
-      id-type: auto
+---
+# 只有非测试环境才从 Nacos 加载业务配置，避免测试引导阶段访问远端服务。
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "nacos:f1_ai_predict.yaml?group=DEFAULT_GROUP&refreshEnabled=false"
+  cloud:
+    nacos:
+      config:
+        server-addr: 129.225.134.151
+        namespace: 681598ed-83a6-47c8-92c2-98d0a0c883fa
+        username: nacos
+        password: nacos

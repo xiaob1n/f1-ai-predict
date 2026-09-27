@@ -2,6 +2,11 @@ package com.lbz.f1aipredict;
 
 import com.lbz.f1aipredict.sync.client.F1PredictFeedClient;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -27,8 +32,16 @@ class F1aipredictApplicationTests {
     @MockitoBean
     private F1PredictFeedClient f1PredictFeedClient;
 
+    @Autowired
+    private Environment environment;
+
+    /** 测试环境仅加载本地配置；数据库连接和 Nacos 服务均不参与上下文启动。 */
     @Test
     void contextLoads() {
+        assertEquals("false", environment.getProperty("spring.cloud.nacos.config.enabled"));
+        assertNull(environment.getProperty("spring.config.import"));
+        assertNull(environment.getProperty("spring.datasource.url"));
+        assertNull(environment.getProperty("f1predict.feed.base-url"));
     }
 
 }

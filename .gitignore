@@ -4,6 +4,9 @@
 # OpenCode 运行时目录
 .omo/
 
+# Claude 会话运行时目录
+.omc/
+
 # 环境变量与本地配置
 .env
 .env.*
