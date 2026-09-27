@@ -4,7 +4,7 @@
 > - `f1-ai-predict-feasibility-analysis.md`（项目可行性分析，2026-08-27）
 > - `sql/002_season_round.sql`、`sql/003_question.sql`、`sql/004_prediction.sql`、`sql/005_answer_scoring.sql`、`sql/006_sync.sql`
 >
-> 当前实现状态：`season`、`question`、`sync`、`common`、`config` 已有源码和测试；`prediction` 已实现预测批次/任务的创建与只读查询，其中创建仅完成 `PENDING` 原子落库。`scoring`、`statistics`、`messaging` 以及预测结果、锁定等后续链路尚未实现。下文以 `[x]` 标记已完成的设计项，未标记项仍属于规划或部分实现。
+> 当前实现状态：`season`、`question`、`sync`、`common`、`config` 已有源码和测试；`prediction` 已实现预测批次/任务的创建与只读查询，创建时原子写入 `PENDING` 批次、任务及请求 outbox。可选启用的 Java v2 请求发布器已实现；预测结果消费、锁定、`scoring`、`statistics` 等后续链路尚未实现。下文以 `[x]` 标记已完成的设计项，未标记项仍属于规划或部分实现。
 
 ## 一、接口分层
 
@@ -27,7 +27,7 @@ com.lbz.f1aipredict
 └── common
 ```
 
-Java 是业务数据唯一管理方；Python 不直接访问 MySQL。预测任务后续规划通过 RabbitMQ 处理，当前消息发布与结果消费尚未实现。
+Java 是业务数据唯一管理方；Python 不直接访问 MySQL。预测请求已实现 outbox 入库和可选启用的 RabbitMQ v2 发布器；Python 结果消息的 Java 消费与结果落库尚未实现。
 
 ## 二、REST 接口
 
@@ -81,6 +81,9 @@ GET /api/v1/rounds/{roundId}
 ```
 
 #### 1.5 查询当前分站（基础查询已实现，预测/评分状态未实现）
+
+- [x] 当前分站及所属赛季、Session、gamedayId 基础查询已实现。
+- [ ] 预测截止时间、创建许可、锁定与评分状态尚未返回。
 
 ```http
 GET /api/v1/rounds/current
@@ -275,7 +278,7 @@ GET /api/v1/admin/sync/raw-payloads/{payloadId}
 
 对应数据表：`prediction_batch`、`prediction_job`、`prediction_result`、`prediction_result_item`、`prediction_evidence`
 
-### 4.1 创建整轮预测批次
+### [x] 4.1 创建整轮预测批次
 
 ```http
 POST /api/v1/rounds/{roundId}/prediction-batches
@@ -302,8 +305,8 @@ POST /api/v1/rounds/{roundId}/prediction-batches
 5. 为每道题创建一条 `prediction_job`
 6. 生成唯一 `predictionJobId`
 
-当前 Java 实现到第 6 步为止：批次和任务均以 `PENDING` 状态原子落库，成功返回 HTTP 201。
-RabbitMQ 预测任务发布以及将批次更新为 `TASK_CREATED` 尚未实现，不应从 201 响应推断消息已经投递。
+当前 Java 已完成以上六步：批次和任务均以 `PENDING` 状态原子落库，并在同一事务中为每个任务写入请求 outbox，成功返回 HTTP 201。
+启用 `f1.prediction.outbox.enabled` 后，独立发布器异步发送 v2 请求并等待 Broker 确认；将批次更新为 `TASK_CREATED`、消费预测结果尚未实现。不应从 201 响应推断消息已经投递或预测完成。
 
 返回示例：
 
@@ -330,7 +333,7 @@ RabbitMQ 预测任务发布以及将批次更新为 `TASK_CREATED` 尚未实现�
 
 但不能同时传 `allOpenQuestions=true` 和 `questionIds`。
 
-### 4.2 查询预测批次
+### [x] 4.2 查询预测批次
 
 ```http
 GET /api/v1/prediction-batches/{batchId}
@@ -340,7 +343,7 @@ GET /api/v1/prediction-batches/{batchId}
 
 当前 DTO 不包含锁定时间或扩展分站信息；也不返回尚未实现的结果或评分信息。
 
-### 4.3 查询批次任务列表
+### [x] 4.3 查询批次任务列表
 
 ```http
 GET /api/v1/prediction-batches/{batchId}/jobs
@@ -348,7 +351,7 @@ GET /api/v1/prediction-batches/{batchId}/jobs
 
 支持 `status`、0-based `page`、`size` 查询参数；`size` 在 Controller 与 Service 边界裁剪，最大为 100。
 
-### 4.4 查询单个预测任务
+### [x] 4.4 查询单个预测任务
 
 ```http
 GET /api/v1/prediction-jobs/{predictionJobId}
@@ -544,9 +547,12 @@ GET /api/v1/statistics/model-comparison
 
 RabbitMQ 消息不是对外 REST 接口，但 Java 端必须实现消息生产者和消费者。
 
-### 8.1 Java 发布预测任务
+### 8.1 Java 发布预测任务（v2 请求发布已实现，原 v1 设计未实现）
 
-建议交换机：`f1.prediction.exchange`，请求路由键：`prediction.request.v1`
+- [x] 创建批次时为每个任务原子写入不可变的 v2 请求 outbox；启用 `f1.prediction.outbox.enabled` 后，后台发布器向 durable direct 交换机 `f1.prediction.request.v2`、路由键 `prediction.request.v2` 发送持久消息，等待发布确认并处理失败重试。
+- [ ] 以下 v1 `PredictionTaskPublisher` 接口及 `republish` 方法仍为原始设计，不代表当前代码的运行契约；结果消费见 8.2，尚未实现。
+
+原 v1 设计建议交换机：`f1.prediction.exchange`，请求路由键：`prediction.request.v1`
 
 消息结构：
 
@@ -708,6 +714,9 @@ public interface PredictionBatchService {
 }
 ```
 
+- [x] 实际 `PredictionBatchService` 已实现批次创建与按 ID 查询，任务分页查询由 `PredictionJobService` 提供。
+- [ ] 上述 `lock`、`retry` 为设计接口，尚未实现。
+
 ```java
 public interface PredictionJobService {
     PredictionJobDto getByBusinessId(String predictionJobId);
@@ -717,6 +726,9 @@ public interface PredictionJobService {
     void markFailed(String predictionJobId, String errorMessage);
 }
 ```
+
+- [x] 实际 `PredictionJobService` 已实现按 `predictionJobId` 查询及按批次分页查询任务。
+- [ ] 上述任务状态流转方法尚未实现。
 
 ```java
 public interface PredictionResultService {
@@ -830,7 +842,7 @@ public class PredictionResultDto {
 - [x] 已实现分页使用 0-based
 - [x] 已实现分页 `size` 最大不超过 100
 - [ ] `confidence` 限制在 `0~1`（预测结果 DTO 尚未实现）
-- [ ] `predictionJobId` 必须作为消息消费幂等键（消息发布与结果消费链路尚未实现）
+- [ ] `predictionJobId` 必须作为 Java 结果消费幂等键（Python 请求 inbox 已按该键去重；Java 结果消费尚未实现）
 - [x] 已实现接口不直接对外返回 Entity
 - [ ] RabbitMQ、Redis 不作为最终业务数据源（相关运行链路尚未实现）
 
@@ -839,8 +851,8 @@ public class PredictionResultDto {
 1. [x] 赛季、分站、Session 基础查询接口
 2. [x] Feed 同步接口
 3. [x] 题目和快照查询接口
-4. [x] 预测批次创建和任务查询接口（创建仅完成批次与任务 `PENDING` 原子落库）
-5. RabbitMQ 预测任务发布与结果消费
+4. [x] 预测批次创建和任务查询接口（创建时原子写入 `PENDING` 批次、任务及请求 outbox）
+5. RabbitMQ 预测任务发布与结果消费（[x] 可选启用的 v2 请求发布；[ ] 结果消费）
 6. 预测结果查询和锁定接口
 7. 官方答案同步
 8. 评分接口

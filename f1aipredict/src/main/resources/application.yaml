@@ -8,11 +8,11 @@ spring:
   config:
     activate:
       on-profile: "!test"
-    import: "nacos:f1_ai_predict.yaml?group=DEFAULT_GROUP&refreshEnabled=false"
+    import: "nacos:${NACOS_DATA_ID:f1_ai_predict.yaml}?group=${NACOS_GROUP:DEFAULT_GROUP}&refreshEnabled=false"
   cloud:
     nacos:
       config:
-        server-addr: 129.225.134.151
-        namespace: 681598ed-83a6-47c8-92c2-98d0a0c883fa
-        username: nacos
-        password: nacos
+        server-addr: ${NACOS_SERVER_ADDR}
+        namespace: ${NACOS_NAMESPACE:}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}

@@ -1,6 +1,7 @@
 package com.lbz.f1aipredict.prediction.service.impl;
 
 import com.lbz.f1aipredict.common.InvalidRequestException;
+import com.lbz.f1aipredict.common.RequestId;
 import com.lbz.f1aipredict.common.ResourceNotFoundException;
 import com.lbz.f1aipredict.prediction.dto.CreatePredictionBatchRequest;
 import com.lbz.f1aipredict.prediction.dto.PredictionBatchDetailDto;
@@ -16,6 +17,10 @@ import com.lbz.f1aipredict.question.service.PredictionQuestionView;
 import com.lbz.f1aipredict.season.dto.RoundDto;
 import com.lbz.f1aipredict.season.service.RoundService;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+
+import java.util.UUID;
+import java.util.regex.Pattern;
 import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -39,18 +44,21 @@ public class PredictionBatchServiceImpl implements PredictionBatchService {
     private static final String STATUS_IN_PROGRESS = "IN_PROGRESS";
     private static final String BATCH_NUMBER_UNIQUE_KEY = "uk_batch_round_no";
     private static final int MAX_CREATE_ATTEMPTS = 3;
+    private static final Pattern SAFE_TRACE_ID = Pattern.compile("[A-Za-z0-9._-]{1,128}");
 
     private final RoundService roundService;
     private final PredictionQuestionReadService questionReadService;
     private final PredictionBatchTransactionExecutor transactionExecutor;
     private final PredictionBatchMapper batchMapper;
     private final PredictionJobMapper jobMapper;
+    private final PredictionRequestSnapshotResolver snapshotResolver;
 
     public PredictionBatchServiceImpl(RoundService roundService,
                                       PredictionQuestionReadService questionReadService,
                                       PredictionBatchTransactionExecutor transactionExecutor,
                                       PredictionBatchMapper batchMapper,
-                                      PredictionJobMapper jobMapper) {
+                                      PredictionJobMapper jobMapper,
+                                      PredictionRequestSnapshotResolver snapshotResolver) {
         this.roundService = Objects.requireNonNull(roundService, "roundService must not be null");
         this.questionReadService = Objects.requireNonNull(
                 questionReadService, "questionReadService must not be null");
@@ -58,6 +66,7 @@ public class PredictionBatchServiceImpl implements PredictionBatchService {
                 transactionExecutor, "transactionExecutor must not be null");
         this.batchMapper = Objects.requireNonNull(batchMapper, "batchMapper must not be null");
         this.jobMapper = Objects.requireNonNull(jobMapper, "jobMapper must not be null");
+        this.snapshotResolver = Objects.requireNonNull(snapshotResolver, "snapshotResolver must not be null");
     }
 
     /**
@@ -74,13 +83,19 @@ public class PredictionBatchServiceImpl implements PredictionBatchService {
         List<PredictionQuestionView> questions = questionReadService.loadForPrediction(
                 roundId, Boolean.TRUE.equals(request.getAllOpenQuestions()) ? null : request.getQuestionIds());
         validateQuestions(questions);
+        PredictionRequestSnapshotResolver.FrozenBatch frozen = snapshotResolver.freeze(round, questions);
+        String requestId = MDC.get(RequestId.MDC_KEY);
+        String traceId = requestId != null && SAFE_TRACE_ID.matcher(requestId).matches()
+                ? requestId : UUID.randomUUID().toString();
         PredictionBatchCreateContext context = new PredictionBatchCreateContext(
                 roundId,
                 request.getDataCutoff(),
                 request.getFeatureVersion(),
                 request.getModelVersion(),
                 request.getPromptVersion(),
-                questions);
+                questions,
+                frozen,
+                traceId);
         return createWithBatchNumberRetry(context);
     }
 

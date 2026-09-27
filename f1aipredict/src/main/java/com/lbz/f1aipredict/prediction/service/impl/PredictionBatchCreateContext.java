@@ -4,24 +4,23 @@ import com.lbz.f1aipredict.question.service.PredictionQuestionView;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
-/**
- * 已完成事务外校验的预测批次创建上下文。
- * <p>
- * 进入短事务前复制题目列表，保证写入期间使用同一组快照、截止时间和版本信息。
- */
+/** 已完成事务外校验的预测批次创建上下文。 */
 public record PredictionBatchCreateContext(
         Long roundId,
         Instant dataCutoff,
         String featureVersion,
         String modelVersion,
         String promptVersion,
-        List<PredictionQuestionView> questions) {
+        List<PredictionQuestionView> questions,
+        PredictionRequestSnapshotResolver.FrozenBatch frozenBatch,
+        String traceId) {
 
-    /**
-     * 构造冻结上下文，阻止调用方在校验后修改题目顺序或内容引用列表。
-     */
+    /** 复制题目列表，防止写事务期间改变冻结顺序。 */
     public PredictionBatchCreateContext {
         questions = List.copyOf(questions);
+        Objects.requireNonNull(frozenBatch, "frozenBatch must not be null");
+        Objects.requireNonNull(traceId, "traceId must not be null");
     }
 }

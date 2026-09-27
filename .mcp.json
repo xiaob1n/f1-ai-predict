@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "project-postgres": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@bytebase/dbhub@latest",
+        "--transport",
+        "stdio",
+        "--config",
+        "${CLAUDE_PROJECT_DIR}/postgres-mcp.toml"
+      ]
+    }
+  }
+}

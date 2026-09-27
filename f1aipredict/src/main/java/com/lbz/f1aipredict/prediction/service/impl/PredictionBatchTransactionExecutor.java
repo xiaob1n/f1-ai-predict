@@ -7,11 +7,14 @@ import com.lbz.f1aipredict.prediction.entity.PredictionBatch;
 import com.lbz.f1aipredict.prediction.entity.PredictionJob;
 import com.lbz.f1aipredict.prediction.mapper.PredictionBatchMapper;
 import com.lbz.f1aipredict.prediction.mapper.PredictionJobMapper;
+import com.lbz.f1aipredict.prediction.outbox.PredictionRequestOutbox;
+import com.lbz.f1aipredict.prediction.outbox.PredictionRequestOutboxMapper;
 import com.lbz.f1aipredict.question.service.PredictionQuestionView;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -29,11 +32,17 @@ public class PredictionBatchTransactionExecutor {
 
     private final PredictionBatchMapper batchMapper;
     private final PredictionJobMapper jobMapper;
+    private final PredictionRequestOutboxMapper outboxMapper;
+    private final PredictionRequestSerializer requestSerializer;
 
     public PredictionBatchTransactionExecutor(PredictionBatchMapper batchMapper,
-                                              PredictionJobMapper jobMapper) {
+                                              PredictionJobMapper jobMapper,
+                                              PredictionRequestOutboxMapper outboxMapper,
+                                              PredictionRequestSerializer requestSerializer) {
         this.batchMapper = Objects.requireNonNull(batchMapper, "batchMapper must not be null");
         this.jobMapper = Objects.requireNonNull(jobMapper, "jobMapper must not be null");
+        this.outboxMapper = Objects.requireNonNull(outboxMapper, "outboxMapper must not be null");
+        this.requestSerializer = Objects.requireNonNull(requestSerializer, "requestSerializer must not be null");
     }
 
     /**
@@ -68,6 +77,17 @@ public class PredictionBatchTransactionExecutor {
         for (PredictionQuestionView question : context.questions()) {
             PredictionJob job = newJob(batch.getId(), question, context);
             requireSingleRow(jobMapper.insert(job), "Prediction job insert failed");
+            PredictionRequestOutbox outbox = new PredictionRequestOutbox();
+            outbox.setPredictionJobId(job.getPredictionJobId());
+            outbox.setMessageId(job.getMessageId());
+            outbox.setPayloadJson(requestSerializer.serialize(job, question, context));
+            outbox.setStatus("PENDING");
+            outbox.setAttempts(0);
+            Instant now = Instant.now();
+            outbox.setNextAttemptAt(now);
+            outbox.setCreatedAt(now);
+            outbox.setUpdatedAt(now);
+            requireSingleRow(outboxMapper.insert(outbox), "Prediction outbox insert failed");
             jobIds.add(job.getPredictionJobId());
         }
 
@@ -81,14 +101,14 @@ public class PredictionBatchTransactionExecutor {
     }
 
     /**
-     * 从冻结上下文构造单个 PENDING 任务；本阶段不生成 RabbitMQ messageId。
+     * 从冻结上下文构造单个 PENDING 任务，并固定首次发布的消息 ID。
      */
     private static PredictionJob newJob(Long batchId,
                                         PredictionQuestionView question,
                                         PredictionBatchCreateContext context) {
         PredictionJob job = new PredictionJob();
         job.setPredictionJobId(UUID.randomUUID().toString());
-        job.setMessageId(null);
+        job.setMessageId(UUID.randomUUID().toString());
         job.setBatchId(batchId);
         job.setQuestionId(question.getQuestionId());
         job.setQuestionSnapshotId(question.getSnapshotId());
