@@ -1,5 +1,5 @@
 # F1 AI Predict Python Worker 工程清单：定义包元数据、构建后端与依赖。
-# 本阶段只建立可安装骨架，不实现配置、日志、REST 或消息 DTO。
+# HTTP 骨架与独立 RabbitMQ 消费进程共用此包。
 
 [build-system]
 requires = ["hatchling"]
@@ -11,6 +11,7 @@ version = "0.1.0"
 description = "F1 AI Predict Python Worker 工程骨架"
 requires-python = ">=3.12"
 dependencies = [
+    "aio-pika>=9.4,<10",
     "fastapi",
     "pydantic",
     "pydantic-settings",

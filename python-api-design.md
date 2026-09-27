@@ -4,10 +4,10 @@
 > - `f1-ai-predict-feasibility-analysis.md`（项目可行性分析，2026-08-27）
 > - `java-api-design.md`（Java 端接口设计）
 > - `sql/004_prediction.sql`、`sql/005_answer_scoring.sql`（预测与评分建表）
-> - 当前 `f1aipredict` Java 源码（`season`、`question`、`sync` 三个已落地领域）
+> - 当前 `f1aipredict` Java 源码（`season`、`question`、`sync` 及预测批次/任务、请求 outbox）
 > - 2026-09 检索到的 LangChain / Qdrant 官方集成结论（`langchain-qdrant` 伙伴包、`QdrantVectorStore`、`RetrievalMode`、`with_structured_output`、Qdrant 异步客户端与 payload 过滤）
 >
-> **当前状态警告**：Java 端已实现 `season`、`question`、`sync` 三个领域，`prediction`、`scoring`、`statistics` 只有建表 SQL（`004`、`005`），尚无 Java 实现。Python Worker 已完成阶段一工程骨架、运维 REST 接口、消息 DTO、统一错误处理、请求 ID、结构化日志和本地 TraceSink；RabbitMQ 运行链路、预测、RAG、Qdrant、模型服务仍未实现。本文档中未标记的内容仍属于设计稿，不得据此声称系统已具备预测能力。模型训练不在当前接口范围内。
+> **当前状态警告**：Java 已实现 `season`、`question`、`sync` 及预测批次/任务创建与只读查询，并有可选启用的 v2 请求 outbox 发布器；`scoring`、`statistics` 和预测结果消费尚未实现。Python 已完成工程骨架、运维 REST（就绪与 Worker 状态仍为占位）、消息 DTO、本地 TraceSink，以及独立的 v2 RabbitMQ 请求消费者（SQLite inbox 落盘后 ACK、重复请求幂等、坏消息隔离并死信）。结果发布、预测推理、RAG、Qdrant、模型服务仍未实现。本文档中未标记的内容仍属于设计稿，不得据此声称系统已具备预测能力。模型训练不在当前接口范围内。
 
 ## 一、接口分层与包结构
 
@@ -96,6 +96,9 @@ GET /health/live
 
 ### 3.2 就绪检查（占位实现，未完成）
 
+- [x] `/health/ready` 路由和固定 `DOWN`/503 占位响应已实现。
+- [ ] RabbitMQ、MongoDB、Qdrant、模型的真实依赖就绪检查未实现；独立消费者使用进程文件探针，不等同于此 HTTP 接口。
+
 ```http
 GET /health/ready
 ```
@@ -137,6 +140,9 @@ GET /api/v1/models/current
 ```
 
 ### 3.4 Worker 状态（占位运行态，未完成）
+
+- [x] `/api/v1/worker/status` 占位路由已实现。
+- [ ] 真实的消费者心跳、任务状态、队列深度和 GPU/模型运行态尚未接入此 HTTP 接口。
 
 ```http
 GET /api/v1/worker/status
@@ -282,9 +288,12 @@ Python 团队开发早期可以用这些 REST 接口拉取题目与赛程样例�
 
 ## 五、RabbitMQ 内部接口
 
-### 5.1 队列拓扑
+### 5.1 队列拓扑（v2 请求与死信已实现，以下 v1 全链路拓扑未实现）
 
-建议交换机 `f1.prediction.exchange`（topic），路由键按消息类型区分：
+- [x] v2 请求链路已声明持久 direct 交换机/队列 `f1.prediction.request.v2`（路由键 `prediction.request.v2`），以及持久死信交换机/队列 `f1.prediction.dead.v2`（路由键 `prediction.dead.v2`）；Java 发布器与独立 Python 消费者使用相同拓扑。
+- [ ] 进度、结果、失败及延迟重试队列尚未实现。
+
+原 v1 设计建议交换机 `f1.prediction.exchange`（topic），路由键按消息类型区分：
 
 ```text
 f1.prediction.exchange
@@ -300,7 +309,11 @@ f1.prediction.exchange
 
 ### 5.2 通用字段约定
 
-所有消息 JSON 一律 camelCase，必含以下追踪与版本字段：
+- [x] 已落地的请求消息使用 `schemaVersion="2"`，包含下述追踪字段、冻结题目与赛事上下文、UTC `dataCutoff` 和版本字段；Python v2 DTO 校验这些字段。
+- [x] v1 消息 DTO 及其往返契约测试已存在，但线上请求消费者只接受 v2。
+- [ ] 下述 `schemaVersion="1"` 属于原全链路设计；进度、结果与失败消息的运行处理尚未落地。
+
+原设计要求所有消息 JSON 一律 camelCase，必含以下追踪与版本字段：
 
 ```text
 schemaVersion      协议版本，首版固定 "1"，变更需 Java/Python 同步升级
@@ -314,9 +327,12 @@ traceId            一次整轮预测的追踪 ID，批次内所有消息共享
 
 请求消息额外携带 `raceContext`、`dataCutoff` 与版本组合（`modelVersion`、`promptVersion`、`featureVersion`、`embeddingVersion`、`retrieverVersion`）；结果消息回填实际使用的 `sourceDataCutoff` 与各版本实值。
 
-### 5.3 预测任务请求消息（PredictionRequestMessage）
+### 5.3 预测任务请求消息（v2 已实现，以下为原 v1 示例）
 
-Java 组装并发布，Python 消费。题目与选项随消息完整下发，避免 Python 回查 Java：
+- [x] Java 将每个任务的 v2 不可变请求写入 outbox，并由可选启用的发布器发送；Python `PredictionRequestV2` DTO 校验后写入本地 inbox。题目与选项随消息完整下发，不需要 Python 回查 Java。
+- [x] v1 `PredictionRequestMessage` DTO 与以下示例已有往返契约测试；该示例不是当前发布器/消费者使用的 v2 运行协议。
+
+原 v1 设计示例：
 
 ```json
 {
@@ -487,7 +503,10 @@ Python 在确定无法完成该任务时发布；`errorMessage` 只允许安全�
 
 ### 5.7 手动 ACK 语义与可靠性
 
-#### ACK 时机
+- [x] 当前 v2 请求消费者在 SQLite inbox 提交成功（或识别为同一请求的重复投递）后手动 ACK；非法请求先写入 quarantine，再拒绝并路由到 DLQ；SQLite 故障时不 ACK，关闭连接后由 Broker 重投。
+- [ ] 以下“模型推理及结果消息发布确认后再 ACK”的设计尚未实现；当前 ACK **仅代表请求持久接收**，不代表预测成功。
+
+#### ACK 时机（规划中的推理/结果发布链路）
 
 1. 消费请求消息后先执行幂等检查（`IdempotencyStore.claim`）。
 2. 执行特征读取、检索、Prompt 组装、模型推理。
@@ -781,6 +800,8 @@ class IdempotencyStore(Protocol):
 ```
 
 ### 6.10 TraceSink（阶段一本地实现）
+
+- [x] 已实现 `TraceSink` ABC、`TraceRecord`、`TraceSpan` 与 `ConsoleTraceSink`；实际 `record(record: TraceRecord)` 签名与以下设计级 Protocol 示例不同，跨服务追踪和持久化尚未实现。
 
 ```python
 from __future__ import annotations
@@ -1128,9 +1149,9 @@ class PromptDefinition(BaseModel):
 | 能力 | 当前状态 | 规划状态 | 本文档定位 |
 | --- | --- | --- | --- |
 | Java `season` / `question` / `sync` | 已实现（REST + Service + Mapper + 契约测试） | 稳定扩展 | 第四节描述其可复用接口 |
-| Java `prediction` / `scoring` / `statistics` | 仅 `004` / `005` 建表，无实现 | 待开发 | 消息契约按 `004` 字段对齐 |
-| RabbitMQ / Redis | 未实现 | 待开发 | 第五、十三节定义契约与可靠性 |
-| Python Worker | 阶段一骨架已实现：运维 REST、消息 DTO、本地 TraceSink；预测、外部依赖和消息链路未实现 | 待开发 | 本文档核心设计对象 |
+| Java `prediction` / `scoring` / `statistics` | `prediction` 批次/任务创建与只读查询、请求 outbox 和可选 v2 发布器已实现；结果消费、`scoring`、`statistics` 未实现 | 待开发 | 当前请求契约为 v2，预测结果链路仍按设计推进 |
+| RabbitMQ / Redis | RabbitMQ v2 请求发布及 Python 接收链路已有实现；Redis 未接入 | 待开发 | 第五、十三节中 v1 全链路仍为规划 |
+| Python Worker | 阶段一骨架、运维 REST、消息 DTO、本地 TraceSink、独立 v2 请求消费者及 SQLite inbox 已实现；推理和结果发布未实现 | 待开发 | 本文档核心设计对象 |
 | MongoDB（OpenF1 落地区） | 项目分析确认已保存 OpenF1 数据，具体集合与运行环境不在本仓库实现 | 持续完善采集元数据、索引与备份 | 第二、八节定义边界 |
 | Qdrant / RAG | 未实现 | 待开发 | 第八节定义检索契约 |
 | 模型服务 | 未实现 | 待开发 | 第九节定义在线推理接口 |
@@ -1139,6 +1160,11 @@ class PromptDefinition(BaseModel):
 ## 十三、可靠性与安全
 
 ### 13.1 消息可靠性
+
+- [x] v2 请求链路已实现持久化拓扑与消息、Java 发布确认、Python inbox 持久化后手动 ACK、重复请求去重及非法请求死信。
+- [ ] 结果/失败消息发布确认、推理完成后 ACK、重试上限和 Java `DEAD_LETTER` 状态处理尚未实现。
+
+以下为完整预测/结果链路的设计要求：
 
 - 持久化队列与持久化消息；发布者确认；消费者手动 ACK；至少一次投递。
 - ACK 时序：结果发布确认之后才 ACK 请求消息（见 5.7）。
@@ -1173,8 +1199,8 @@ class PromptDefinition(BaseModel):
 
 1. [x] Python 工程骨架：包结构、日志、配置与本地 `TraceSink`。
 2. 轻量 REST：`/health/live` 已完成；`/health/ready` 和 `/api/v1/worker/status` 仍为占位实现。
-3. [x] 消息 DTO：Pydantic 规范落地，含 camelCase 别名与契约测试。
-4. RabbitMQ 连接与任务消费骨架：手动 ACK、发布者确认、`IdempotencyStore` 占位。
+3. [x] 消息 DTO：v1 DTO 及契约测试、v2 请求 DTO 均已实现，含 camelCase 别名；文档 v1 示例不代表当前消费者使用的 v2 运行协议。
+4. RabbitMQ 请求消费骨架：（[x] v2 连接、SQLite inbox 持久化后手动 ACK、重复请求幂等、坏消息死信；[ ] 推理后的结果发布与发布者确认）。
 5. 无检索基线链路：题目文本 + 选项直接经 `ModelGateway` 输出结构化 JSON，先打通端到端。
 6. `FeatureRepository`：只读本地 MongoDB，截止时间过滤。
 7. `PredictionResultPublisher` 与失败消息：结果确认发布后才 ACK。

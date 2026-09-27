@@ -1,0 +1,13 @@
+[[sources]]
+id = "postgres"
+dsn = "${POSTGRES_MCP_DSN}"
+
+[[tools]]
+name = "execute_sql"
+source = "postgres"
+readonly = true
+max_rows = 100
+
+[[tools]]
+name = "search_objects"
+source = "postgres"

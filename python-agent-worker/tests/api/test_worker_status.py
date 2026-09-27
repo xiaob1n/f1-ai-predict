@@ -6,10 +6,9 @@ import socket
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from fastapi.testclient import TestClient
-
 from f1_predict.api import worker_status as worker_status_module
 from f1_predict.api.app import app
+from fastapi.testclient import TestClient
 
 _TOP_LEVEL_KEYS = {
     "workerNode",

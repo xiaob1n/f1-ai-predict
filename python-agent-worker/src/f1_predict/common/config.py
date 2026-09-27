@@ -1,7 +1,7 @@
 """进程配置：仅安全默认值，外部服务 URL 默认为空。
 
-本阶段不建立 RabbitMQ / MongoDB / Qdrant 连接；URL 字段存在是为了
-后续 todo 读取同一配置入口，调用方不得把空字符串当作成熟连接串使用。
+独立消费者会连接 RabbitMQ；HTTP 进程仍不建立外部连接。
+MongoDB / Qdrant 保持未接入，空 URL 不代表可用连接。
 """
 
 from __future__ import annotations
@@ -37,7 +37,24 @@ class Settings(BaseSettings):
     """结构化日志阈值，默认 INFO。"""
 
     rabbitmq_url: str = ""
-    """RabbitMQ 连接 URL，阶段一保持空字符串，不建立连接。"""
+    """独立消费者启动时必须提供；HTTP 进程不建立连接。"""
+
+    consumer_sqlite_path: str = ""
+    """持久卷上的本地 SQLite 文件；独立消费进程必填。"""
+
+    consumer_health_path: str = ""
+    """消费者进程写入的健康状态文件，默认为 SQLite 同目录文件。"""
+
+    request_exchange: str = "f1.prediction.request.v2"
+    request_queue: str = "f1.prediction.request.v2"
+    request_routing_key: str = "prediction.request.v2"
+    dead_letter_exchange: str = "f1.prediction.dead.v2"
+    dead_letter_queue: str = "f1.prediction.dead.v2"
+    dead_letter_routing_key: str = "prediction.dead.v2"
+    consumer_prefetch: int = Field(default=10, ge=1, le=100)
+    consumer_max_message_bytes: int = Field(default=262144, ge=1024)
+    consumer_reconnect_seconds: float = Field(default=2.0, gt=0, le=60)
+    consumer_shutdown_seconds: float = Field(default=30.0, gt=0, le=300)
 
     mongodb_url: str = ""
     """本地 MongoDB URL，阶段一保持空字符串，不建立连接。"""

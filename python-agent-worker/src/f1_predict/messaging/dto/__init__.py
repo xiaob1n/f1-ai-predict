@@ -11,6 +11,7 @@ from f1_predict.messaging.dto.request import (
     QuestionPayload,
     RaceContext,
 )
+from f1_predict.messaging.dto.request_v2 import PredictionRequestV2
 from f1_predict.messaging.dto.result import (
     EvidenceRef,
     PredictionResultMessage,
@@ -22,6 +23,7 @@ __all__ = [
     "PredictionFailureMessage",
     "PredictionProgressMessage",
     "PredictionRequestMessage",
+    "PredictionRequestV2",
     "PredictionResultMessage",
     "QuestionOptionPayload",
     "QuestionPayload",

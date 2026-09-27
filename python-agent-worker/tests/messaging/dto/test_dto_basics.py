@@ -7,8 +7,6 @@ from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
-
 from f1_predict.messaging.dto import (
     PredictionFailureMessage,
     PredictionProgressMessage,
@@ -16,6 +14,7 @@ from f1_predict.messaging.dto import (
     PredictionResultMessage,
     QuestionPayload,
 )
+from pydantic import ValidationError
 
 _REQUEST_PAYLOAD: dict[str, Any] = {
     "schemaVersion": "1",

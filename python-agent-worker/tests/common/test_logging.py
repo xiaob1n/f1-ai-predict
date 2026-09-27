@@ -8,11 +8,10 @@ from io import StringIO
 
 import pytest
 import structlog
-from structlog.testing import capture_logs
-
 from f1_predict.common.config import Settings
 from f1_predict.common.logging import AccessLogEvent, configure_logging, log_access
 from f1_predict.common.request_id import bind_request_id, reset_request_id
+from structlog.testing import capture_logs
 
 _ENV_PREFIX = "F1_PREDICT_"
 

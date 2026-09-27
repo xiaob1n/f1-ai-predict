@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
-
 from f1_predict.api.app import app
+from fastapi.testclient import TestClient
 
 _READY_CHECK_KEYS = ("rabbitmq", "mongodb", "qdrant", "model")
 
