@@ -12,6 +12,9 @@ from datetime import UTC, datetime
 from types import UnionType
 from typing import Annotated, Literal, assert_never, get_args, get_origin
 
+from pydantic import BaseModel
+from pydantic.fields import FieldInfo
+
 from f1_predict.messaging.dto import (
     EvidenceRef,
     PredictionFailureMessage,
@@ -24,8 +27,6 @@ from f1_predict.messaging.dto import (
     SelectedOption,
 )
 from f1_predict.messaging.dto.base import PredictionMessageEnvelope
-from pydantic import BaseModel
-from pydantic.fields import FieldInfo
 
 type JsonScalar = str | int | float | bool | None
 type JsonValue = JsonScalar | list["JsonValue"] | dict[str, "JsonValue"]

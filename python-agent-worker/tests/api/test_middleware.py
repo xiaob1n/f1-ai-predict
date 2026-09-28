@@ -10,13 +10,14 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
+from structlog.testing import capture_logs
+
 from f1_predict.api.app import app
 from f1_predict.api.errors import register_exception_handlers
 from f1_predict.api.middleware import RequestContextMiddleware
 from f1_predict.common.request_id import HEADER, get_request_id
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from structlog.testing import capture_logs
 
 
 def _assert_safe_error_body(payload: object, *, code: str) -> None:

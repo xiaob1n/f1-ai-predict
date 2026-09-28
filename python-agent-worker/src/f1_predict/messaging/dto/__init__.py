@@ -4,6 +4,10 @@
 """
 
 from f1_predict.messaging.dto.failure import PredictionFailureMessage
+from f1_predict.messaging.dto.failure_v2 import (
+    PredictionFailureCode,
+    PredictionFailureV2,
+)
 from f1_predict.messaging.dto.progress import PredictionProgressMessage
 from f1_predict.messaging.dto.request import (
     PredictionRequestMessage,
@@ -17,16 +21,26 @@ from f1_predict.messaging.dto.result import (
     PredictionResultMessage,
     SelectedOption,
 )
+from f1_predict.messaging.dto.result_v2 import (
+    EvidenceSourceV2,
+    PredictionResultV2,
+    SelectedOptionV2,
+)
 
 __all__ = [
     "EvidenceRef",
+    "EvidenceSourceV2",
+    "PredictionFailureCode",
     "PredictionFailureMessage",
+    "PredictionFailureV2",
     "PredictionProgressMessage",
     "PredictionRequestMessage",
     "PredictionRequestV2",
     "PredictionResultMessage",
+    "PredictionResultV2",
     "QuestionOptionPayload",
     "QuestionPayload",
     "RaceContext",
     "SelectedOption",
+    "SelectedOptionV2",
 ]

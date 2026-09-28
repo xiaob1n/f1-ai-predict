@@ -8,6 +8,7 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+
 from f1_predict.common.config import Settings
 from f1_predict.reliability.idempotency import InboxStore
 from f1_predict.worker.consumer import process_delivery

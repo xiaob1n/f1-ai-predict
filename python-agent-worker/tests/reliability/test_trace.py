@@ -11,14 +11,15 @@ from pathlib import Path
 
 import pytest
 import structlog
+from pydantic import ValidationError
+from structlog.testing import capture_logs
+
 from f1_predict.reliability.trace import (
     ConsoleTraceSink,
     TraceRecord,
     TraceSink,
     TraceSpan,
 )
-from pydantic import ValidationError
-from structlog.testing import capture_logs
 
 
 def _sample_occurred_at() -> datetime:

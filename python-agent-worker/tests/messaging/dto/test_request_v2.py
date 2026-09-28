@@ -6,8 +6,9 @@ import json
 from pathlib import Path
 
 import pytest
-from f1_predict.messaging.dto.request_v2 import PredictionRequestV2
 from pydantic import ValidationError
+
+from f1_predict.messaging.dto.request_v2 import PredictionRequestV2
 
 
 def test_java_producer_fixture_is_valid_v2() -> None:
