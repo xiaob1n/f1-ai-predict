@@ -12,6 +12,10 @@ import java.util.List;
 @Mapper
 public interface PredictionRequestOutboxMapper extends BaseMapper<PredictionRequestOutbox> {
 
+    /** 读取不可变请求载荷，用于校验消息与创建时冻结上下文一致。 */
+    @Select("SELECT * FROM prediction_request_outbox WHERE prediction_job_id = #{predictionJobId} LIMIT 1")
+    PredictionRequestOutbox selectByPredictionJobId(@Param("predictionJobId") String predictionJobId);
+
     /** 仅选候选行，真正的所有权由条件更新确定。 */
     @Select("SELECT id FROM prediction_request_outbox WHERE "
             + "(status = 'PENDING' AND next_attempt_at <= UTC_TIMESTAMP(3)) "

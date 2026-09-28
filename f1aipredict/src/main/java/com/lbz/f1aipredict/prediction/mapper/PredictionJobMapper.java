@@ -35,6 +35,21 @@ public interface PredictionJobMapper extends BaseMapper<PredictionJob> {
             """)
     PredictionJob selectByPredictionJobId(@Param("predictionJobId") String predictionJobId);
 
+    /** 事务内锁定业务任务，串行化同一 job 的成功/失败终态竞争。 */
+    @Select("SELECT * FROM prediction_job WHERE prediction_job_id = #{predictionJobId} LIMIT 1 FOR UPDATE")
+    PredictionJob selectByPredictionJobIdForUpdate(@Param("predictionJobId") String predictionJobId);
+
+    /** 批次行已锁定且事务为 READ COMMITTED 时读取已提交的当前状态集合。 */
+    @Select("SELECT * FROM prediction_job WHERE batch_id = #{batchId} ORDER BY id ASC")
+    List<PredictionJob> selectAllByBatchId(@Param("batchId") Long batchId);
+
+    /** 只允许非终态任务推进到结果或失败终态。 */
+    @org.apache.ibatis.annotations.Update("UPDATE prediction_job SET status = #{status}, "
+            + "completed_at = #{completedAt}, updated_at = UTC_TIMESTAMP(3) WHERE id = #{jobId} "
+            + "AND status IN ('PENDING', 'RUNNING', 'RETRYING')")
+    int updateTerminalStatus(@Param("jobId") Long jobId, @Param("status") String status,
+                             @Param("completedAt") java.time.Instant completedAt);
+
     /**
      * 按批次分页查询任务，可选状态精确过滤。
      * page 为 0-based；非法 page/size 由 {@link SQLProvider} 裁剪后生成 LIMIT/OFFSET。

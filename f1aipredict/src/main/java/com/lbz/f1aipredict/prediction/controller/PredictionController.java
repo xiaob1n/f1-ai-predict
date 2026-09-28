@@ -6,7 +6,9 @@ import com.lbz.f1aipredict.prediction.dto.PredictionBatchDto;
 import com.lbz.f1aipredict.prediction.dto.PredictionJobDto;
 import com.lbz.f1aipredict.prediction.dto.PredictionJobPageDto;
 import com.lbz.f1aipredict.prediction.dto.PredictionJobQuery;
+import com.lbz.f1aipredict.prediction.dto.PredictionJobOutcomeDto;
 import com.lbz.f1aipredict.prediction.service.PredictionBatchService;
+import com.lbz.f1aipredict.prediction.service.PredictionJobOutcomeService;
 import com.lbz.f1aipredict.prediction.service.PredictionJobService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -26,11 +28,14 @@ public class PredictionController {
 
     private final PredictionBatchService batchService;
     private final PredictionJobService jobService;
+    private final PredictionJobOutcomeService outcomeService;
 
     /** 构造预测接口控制器，依赖保持在服务抽象层。 */
-    public PredictionController(PredictionBatchService batchService, PredictionJobService jobService) {
+    public PredictionController(PredictionBatchService batchService, PredictionJobService jobService,
+                                PredictionJobOutcomeService outcomeService) {
         this.batchService = batchService;
         this.jobService = jobService;
+        this.outcomeService = outcomeService;
     }
 
     /** 创建批次；201 只表示 PENDING 批次已落库，不代表任务已投递。 */
@@ -59,5 +64,11 @@ public class PredictionController {
     @GetMapping("/prediction-jobs/{predictionJobId}")
     public PredictionJobDto getJob(@PathVariable String predictionJobId) {
         return jobService.getByBusinessId(predictionJobId);
+    }
+
+    /** 查询任务状态及其可公开的结果或失败信息。 */
+    @GetMapping("/prediction-jobs/{predictionJobId}/outcome")
+    public PredictionJobOutcomeDto getOutcome(@PathVariable String predictionJobId) {
+        return outcomeService.getByBusinessId(predictionJobId);
     }
 }

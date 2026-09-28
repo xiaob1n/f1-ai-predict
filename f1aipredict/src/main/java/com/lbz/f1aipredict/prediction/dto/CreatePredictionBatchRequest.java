@@ -56,7 +56,7 @@ public class CreatePredictionBatchRequest {
     @JsonProperty("allOpenQuestions")
     private Boolean allOpenQuestions;
 
-    /** 本批次统一数据截止时间，必须带时区，入库为 UTC Instant。允许未来值。 */
+    /** 本批次统一数据截止时间，必须带时区且最多精确到毫秒，入库为 UTC Instant。允许未来值。 */
     @JsonProperty("dataCutoff")
     @JsonDeserialize(using = OffsetInstantDeserializer.class)
     @NotNull

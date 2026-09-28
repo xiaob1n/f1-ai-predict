@@ -44,3 +44,5 @@ Thumbs.db
 *~
 *.swp
 *.swo
+
+tests

@@ -245,6 +245,10 @@ public class PredictionBatchServiceImpl implements PredictionBatchService {
                 || isBlank(request.getPromptVersion())) {
             throw new InvalidRequestException("Prediction versions and dataCutoff are required");
         }
+        // 数据库 DATETIME(3) 与请求 outbox 必须使用同一个精确的截止时间，不允许隐式截断。
+        if (request.getDataCutoff().getNano() % 1_000_000 != 0) {
+            throw new InvalidRequestException("dataCutoff must have millisecond precision");
+        }
         // Service 可被非 HTTP 调用，版本长度必须在任何只读服务和写入前再次守住数据库列宽。
         if (request.getFeatureVersion().length() > CreatePredictionBatchRequest.FEATURE_VERSION_MAX_LENGTH
                 || request.getModelVersion().length() > CreatePredictionBatchRequest.MODEL_VERSION_MAX_LENGTH

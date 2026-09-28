@@ -33,3 +33,4 @@ build/
 .vscode/
 /src/test/
 nacos.example.yaml
+../python-agent-worker/tests

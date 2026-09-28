@@ -23,4 +23,13 @@ public interface PredictionBatchMapper extends BaseMapper<PredictionBatch> {
      */
     @Select("SELECT MAX(batch_no) FROM prediction_batch WHERE round_id = #{roundId}")
     Integer selectMaxBatchNo(@Param("roundId") Long roundId);
+
+    /** 锁定批次行，与任务锁形成 job→batch 的固定锁顺序。 */
+    @Select("SELECT * FROM prediction_batch WHERE id = #{batchId} FOR UPDATE")
+    PredictionBatch selectByIdForUpdate(@Param("batchId") Long batchId);
+
+    /** 在终态事务中更新批次聚合状态。 */
+    @org.apache.ibatis.annotations.Update("UPDATE prediction_batch SET status = #{status}, "
+            + "updated_at = UTC_TIMESTAMP(3) WHERE id = #{batchId}")
+    int updateStatus(@Param("batchId") Long batchId, @Param("status") String status);
 }

@@ -19,3 +19,5 @@
 #opencode 配置
 .opencode/
 
+python-agent-worker/tests
+
