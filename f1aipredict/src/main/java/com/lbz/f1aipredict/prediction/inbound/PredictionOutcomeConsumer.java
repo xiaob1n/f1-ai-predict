@@ -47,13 +47,16 @@ public class PredictionOutcomeConsumer {
         this.objectMapper = objectMapper;
     }
 
-    @RabbitListener(id = RESULT_LISTENER_ID, queues = "#{@predictionOutcomeProperties.resultQueue}",
+    // 注解解析发生在配置属性绑定 Bean 名称确定之前，直接使用属性占位符避免依赖 Bean 命名规则。
+    @RabbitListener(id = RESULT_LISTENER_ID,
+            queues = "${f1predict.prediction.outcome.result-queue:f1.prediction.result.v2}",
             containerFactory = "predictionOutcomeListenerContainerFactory")
     public void onResult(Message message, Channel channel) {
         consume(message, channel, true);
     }
 
-    @RabbitListener(id = FAILURE_LISTENER_ID, queues = "#{@predictionOutcomeProperties.failureQueue}",
+    @RabbitListener(id = FAILURE_LISTENER_ID,
+            queues = "${f1predict.prediction.outcome.failure-queue:f1.prediction.failure.v2}",
             containerFactory = "predictionOutcomeListenerContainerFactory")
     public void onFailure(Message message, Channel channel) {
         consume(message, channel, false);
