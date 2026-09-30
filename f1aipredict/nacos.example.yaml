@@ -1,0 +1,68 @@
+# Nacos 配置示例：Data ID=f1_ai_predict.yaml，Group=DEFAULT_GROUP。
+# 所有连接值由部署环境提供；本文件不保存真实地址、账号或口令。
+server:
+  port: ${F1_SERVER_PORT:7777}
+
+spring:
+  datasource:
+    url: ${F1_MYSQL_URL}
+    username: ${F1_MYSQL_USERNAME}
+    password: ${F1_MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  rabbitmq:
+    host: ${F1_RABBITMQ_HOST}
+    port: ${F1_RABBITMQ_PORT:5672}
+    username: ${F1_RABBITMQ_USERNAME}
+    password: ${F1_RABBITMQ_PASSWORD}
+    virtual-host: ${F1_RABBITMQ_VIRTUAL_HOST}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+
+# 请求发布和终态消费使用不同配置前缀，不能只开启其中一端便宣称闭环。
+f1:
+  prediction:
+    outbox:
+      enabled: ${F1_PREDICTION_OUTBOX_ENABLED:false}
+
+f1predict:
+  feed:
+    base-url: ${F1_FEED_BASE_URL}
+    schedule-path: /feeds/schedule/raceday_en.json
+    limits-path: /feeds/limits/constraints.json
+    questions-path: /feeds/questions/questions_{gamedayId}_en.json
+    mix-api-path: /feeds/live/mixapi.json
+    web-config-path: /feeds/apps/web_config.json
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
+    # 默认不推断上游数字状态；仅在核实真实 Feed 语义后显式配置数字到 OPEN/CLOSED 的映射。
+    # 映射留空时，数字状态题目不会被视为可预测的 OPEN 题目。
+    question-status-mapping: {}
+  sync:
+    scheduler:
+      enabled: ${F1_SYNC_SCHEDULER_ENABLED:true}
+      initial-delay: PT1H
+      fixed-delay: PT1H
+  prediction:
+    outcome:
+      enabled: ${F1_PREDICTION_OUTCOME_ENABLED:false}
+
+logging:
+  include-application-name: true
+  level:
+    root: INFO
+    com.lbz.f1aipredict: INFO
+  pattern:
+    correlation: "[%X{requestId:-}] "
+
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.lbz.f1aipredict.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: true
+    db-config:
+      id-type: auto
