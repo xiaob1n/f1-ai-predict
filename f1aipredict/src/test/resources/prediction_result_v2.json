@@ -1,0 +1,22 @@
+{
+  "schemaVersion": "2",
+  "messageId": "outcome-result-1",
+  "predictionJobId": "job-1",
+  "batchId": 100,
+  "questionId": 11,
+  "questionSnapshotId": 501,
+  "traceId": "trace-1",
+  "selectedOptions": [{"optionId": 101, "position": 1}],
+  "confidence": 0.12345678901234568,
+  "reasoningSummary": "基于冻结快照的预测",
+  "evidence": [{"sourceType": "LAP_TIMES", "sourceName": "审计数据", "sourceUrl": null,
+    "firstSeenAt": "2026-09-11T03:59:59.123456Z", "eventTime": null,
+    "documentId": "fixture-doc-1", "chunkId": null}],
+  "sourceDataCutoff": "2026-09-11T04:00:00Z",
+  "generatedAt": "2026-09-11T04:01:00Z",
+  "modelVersion": "model-v1",
+  "promptVersion": "prompt-v1",
+  "featureVersion": "feature-v1",
+  "embeddingVersion": null,
+  "retrieverVersion": null
+}
