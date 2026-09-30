@@ -1,0 +1,39 @@
+# 专用项目名由 run.py 每次生成；不得使用默认项目名操作其他容器。
+services:
+  mysql:
+    image: mysql:8.4.7
+    environment:
+      MYSQL_ROOT_PASSWORD: ${E2E_MYSQL_PASSWORD:?由 prepare 生成的隔离密码缺失}
+      MYSQL_DATABASE: f1_ai_predict
+    ports:
+      - "127.0.0.1:13306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -u root --silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    labels:
+      org.f1predict.scope: isolated-e2e
+  rabbitmq:
+    image: rabbitmq:4.1.6-management
+    environment:
+      RABBITMQ_DEFAULT_USER: e2e
+      RABBITMQ_DEFAULT_PASS: ${E2E_RABBIT_PASSWORD:?由 prepare 生成的隔离密码缺失}
+      RABBITMQ_DEFAULT_VHOST: e2e
+    ports:
+      - "127.0.0.1:15673:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    labels:
+      org.f1predict.scope: isolated-e2e
+volumes:
+  mysql_data:
+  rabbitmq_data:

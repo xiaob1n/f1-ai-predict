@@ -1,0 +1,54 @@
+# 必须作为唯一 spring.config.location 加载，不叠加仓库默认 Nacos 配置。
+server:
+  address: 127.0.0.1
+  port: 18780
+spring:
+  application:
+    name: f1aipredict-isolated-e2e
+  cloud:
+    nacos:
+      config:
+        enabled: false
+      discovery:
+        enabled: false
+  datasource:
+    url: jdbc:mysql://127.0.0.1:13306/f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: ${E2E_MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  rabbitmq:
+    host: 127.0.0.1
+    port: 15673
+    username: e2e
+    password: ${E2E_RABBIT_PASSWORD}
+    virtual-host: e2e
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+f1predict:
+  feed:
+    base-url: http://127.0.0.1:18781
+    schedule-path: /feeds/schedule/raceday_en.json
+    limits-path: /feeds/limits/constraints.json
+    questions-path: /feeds/questions/questions_{gamedayId}_en.json
+    mix-api-path: /feeds/live/mixapi.json
+    web-config-path: /feeds/apps/web_config.json
+    connect-timeout-ms: 1000
+    read-timeout-ms: 3000
+    question-status-mapping:
+      4: OPEN
+  sync:
+    scheduler:
+      enabled: false
+  prediction:
+    outcome:
+      enabled: true
+f1:
+  prediction:
+    outbox:
+      enabled: true
+      scan-delay-ms: 1000
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
