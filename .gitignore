@@ -10,6 +10,8 @@
 # 环境变量与本地配置
 .env
 .env.*
+# 仅允许提交不含真实连接值的隔离环境样例
+!deploy/e2e/.env.example
 *.local
 
 # IDE 配置
@@ -19,5 +21,8 @@
 #opencode 配置
 .opencode/
 
-python-agent-worker/tests
+# 保留历史测试忽略范围，仅放行本次交付的跨语言契约测试
+python-agent-worker/tests/**
+!python-agent-worker/tests/**/
+!python-agent-worker/tests/messaging/dto/test_result_failure_v2.py
 

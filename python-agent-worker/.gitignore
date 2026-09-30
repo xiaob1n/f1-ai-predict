@@ -45,4 +45,7 @@ Thumbs.db
 *.swp
 *.swo
 
-tests
+# 历史测试仍忽略，仅放行已交付的 v2 结果/失败契约回归
+/tests/**
+!/tests/**/
+!/tests/messaging/dto/test_result_failure_v2.py
