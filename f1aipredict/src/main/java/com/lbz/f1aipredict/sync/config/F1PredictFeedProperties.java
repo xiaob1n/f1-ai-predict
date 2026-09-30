@@ -1,10 +1,14 @@
 package com.lbz.f1aipredict.sync.config;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
+
+import java.util.Map;
 
 /**
  * F1 Predict 官方 Feed 的类型安全配置。
@@ -39,6 +43,10 @@ public class F1PredictFeedProperties {
     /** Web 配置 Feed 路径，例如 /feeds/apps/web_config.json */
     @NotBlank
     private String webConfigPath;
+
+    /** 上游数字题目状态到业务状态的显式映射；默认不推断任何未知状态。 */
+    @NotNull
+    private Map<Integer, @Pattern(regexp = "OPEN|CLOSED") String> questionStatusMapping = Map.of();
 
     /** HTTP 连接超时（毫秒），供后续 WebClient 使用 */
     @Positive

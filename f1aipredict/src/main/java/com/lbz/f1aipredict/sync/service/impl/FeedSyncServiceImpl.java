@@ -53,10 +53,12 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 赛程 Feed 同步实现：拉取 raceday JSON，按 SHA-256 幂等留档，
@@ -419,11 +421,20 @@ public class FeedSyncServiceImpl implements FeedSyncService {
 
         SyncRecord previous = persistenceStore.findLatestUnchanged(SOURCE_TYPE_QUESTIONS, contentHash);
         if (previous != null) {
-            Long recordId = persistenceStore.saveSyncRecord(
-                    newSyncRecord(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, STATUS_SKIPPED, 200, null, startedAt, gamedayId));
-            log.warn("题目内容未变化，跳过业务写入: gamedayId={}, recordId={}, payloadId={}",
-                    gamedayId, recordId, payloadId);
-            return result(SOURCE_TYPE_QUESTIONS, STATUS_SKIPPED, contentHash, recordId, payloadId, null);
+            try {
+                QuestionReconciliation reconciliation = reconcileQuestionStatuses(json, gamedayId);
+                String status = reconciliation.inserted() + reconciliation.normalized() == 0 ? STATUS_SKIPPED : STATUS_SUCCESS;
+                String note = reconciliation.skipped() > 0 ? "skippedQuestions=" + reconciliation.skipped() : null;
+                Long recordId = persistenceStore.saveSyncRecord(
+                        newSyncRecord(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, status, 200, note, startedAt, gamedayId));
+                log.info("题目内容未变化，已核对缺题和状态映射: gamedayId={}, recordId={}, payloadId={}, inserted={}, normalized={}, skipped={}",
+                        gamedayId, recordId, payloadId, reconciliation.inserted(), reconciliation.normalized(), reconciliation.skipped());
+                return result(SOURCE_TYPE_QUESTIONS, status, contentHash, recordId, payloadId, note);
+            } catch (JsonProcessingException | IllegalArgumentException ex) {
+                log.error("题目状态映射核对失败: gamedayId={}", gamedayId, ex);
+                return writeFailed(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, payloadId,
+                        ex.getMessage(), 200, startedAt, gamedayId);
+            }
         }
 
         try {
@@ -439,6 +450,66 @@ public class FeedSyncServiceImpl implements FeedSyncService {
             log.error("题目 JSON 解析失败: gamedayId={}", gamedayId, ex);
             return writeFailed(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, payloadId, ex.getMessage(), 200, startedAt, gamedayId);
         }
+    }
+
+    /**
+     * 同包重试只补建缺题与 INITIAL 快照，或修正相同内容的状态；已有不同哈希绝不回退。
+     */
+    private QuestionReconciliation reconcileQuestionStatuses(String json, Integer gamedayId) throws JsonProcessingException {
+        List<QuestionsFeedQuestion> sources = extractQuestions(parseQuestionsResponse(json));
+        Long roundId = resolveRoundId(gamedayId);
+        if (roundId == null) {
+            return new QuestionReconciliation(0, 0, sources.size());
+        }
+        // 来源唯一键只限定比赛日，旧分站题也必须参与缺题判断，避免误插重复来源。
+        List<Question> existing = questionMapper.selectByGamedayId(gamedayId);
+        Map<Integer, Question> bySourceId = new LinkedHashMap<>();
+        if (existing != null) {
+            for (Question question : existing) {
+                if (gamedayId.equals(question.getGamedayId()) && question.getSourceQuestionId() != null) {
+                    bySourceId.putIfAbsent(question.getSourceQuestionId(), question);
+                }
+            }
+        }
+        Set<Integer> seenSourceIds = new HashSet<>();
+        int inserted = 0;
+        int normalized = 0;
+        int skipped = 0;
+        for (QuestionsFeedQuestion source : sources) {
+            if (source == null || source.getId() == null) {
+                skipped++;
+                continue;
+            }
+            if (!seenSourceIds.add(source.getId())) {
+                continue;
+            }
+            String questionJson = objectMapper.writeValueAsString(source);
+            String contentHash = FeedSyncUtils.sha256Hex(questionJson);
+            Question question = bySourceId.get(source.getId());
+            if (question == null) {
+                // 并发插入冲突与快照/选项持久化失败直接上抛，交由现有事务回滚，不转为 CHANGED 覆盖。
+                insertNewQuestion(source, gamedayId, roundId, contentHash, questionJson, Instant.now());
+                inserted++;
+                continue;
+            }
+            // 已关联其它分站的题目只占据来源身份，不迁移分站或修正状态、时间。
+            if (!Objects.equals(question.getRoundId(), roundId)
+                    || !Objects.equals(question.getContentHash(), contentHash)) {
+                continue;
+            }
+            String status = resolveQuestionStatus(source.getStatus());
+            if (!Objects.equals(status, question.getStatus())) {
+                // 只在旧内容与旧状态仍生效时修正；并发更新导致零行时不计入修正数。
+                if (updateQuestionStatus(question, status, Instant.now()) > 0) {
+                    normalized++;
+                }
+            }
+        }
+        return new QuestionReconciliation(inserted, normalized, skipped);
+    }
+
+    /** 同包重试的实际补建、状态修正与跳过数量。 */
+    private record QuestionReconciliation(int inserted, int normalized, int skipped) {
     }
 
     /**
@@ -537,12 +608,20 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         }
 
         if (contentHash.equals(existing.getContentHash())) {
-            existing.setLastSyncedAt(now);
-            questionMapper.updateById(existing);
+            updateQuestionStatus(existing, resolveQuestionStatus(feedQuestion.getStatus()), now);
             return;
         }
 
         updateChangedQuestion(existing, feedQuestion, contentHash, questionJson, now);
+    }
+
+    /**
+     * 状态与同步时间使用带旧值条件的窄字段写入，不把旧读视图的内容和快照回写。
+     */
+    private int updateQuestionStatus(Question existing, String status, Instant now) {
+        return questionMapper.updateStatusIfUnchanged(existing.getId(), existing.getGamedayId(),
+                existing.getContentHash(), existing.getStatus(), status, now,
+                !Objects.equals(status, existing.getStatus()));
     }
 
     /**
@@ -559,7 +638,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         question.setSubText(feedQuestion.getSubText());
         question.setOptionTemplateId(feedQuestion.getOptionTemplateId());
         question.setChoiceLimit(extractChoiceLimit(feedQuestion.getConfig()));
-        question.setStatus(String.valueOf(feedQuestion.getStatus()));
+        question.setStatus(resolveQuestionStatus(feedQuestion.getStatus()));
         question.setContentHash(contentHash);
         question.setFirstSeenAt(now);
         question.setLastSyncedAt(now);
@@ -589,7 +668,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         existing.setSubText(feedQuestion.getSubText());
         existing.setOptionTemplateId(feedQuestion.getOptionTemplateId());
         existing.setChoiceLimit(extractChoiceLimit(feedQuestion.getConfig()));
-        existing.setStatus(String.valueOf(feedQuestion.getStatus()));
+        existing.setStatus(resolveQuestionStatus(feedQuestion.getStatus()));
         existing.setContentHash(contentHash);
         existing.setLatestSnapshotId(snapshotId);
         existing.setLastSyncedAt(now);
@@ -597,6 +676,22 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         questionMapper.updateById(existing);
 
         insertOptions(snapshotId, feedQuestion.getOptions(), now);
+    }
+
+    /**
+     * 只有明确配置的状态才可转换为业务 OPEN/CLOSED；未识别数字保持原样供审计，绝不默认开放预测。
+     */
+    private String resolveQuestionStatus(Integer sourceStatus) {
+        String rawStatus = String.valueOf(sourceStatus);
+        Map<Integer, String> mapping = properties.getQuestionStatusMapping();
+        if (sourceStatus == null || mapping == null || !mapping.containsKey(sourceStatus)) {
+            return rawStatus;
+        }
+        String normalized = mapping.get(sourceStatus);
+        if (!"OPEN".equals(normalized) && !"CLOSED".equals(normalized)) {
+            throw new IllegalArgumentException("Unsupported question status mapping");
+        }
+        return normalized;
     }
 
     /**

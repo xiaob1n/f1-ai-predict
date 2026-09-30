@@ -8,8 +8,10 @@ import org.apache.ibatis.annotations.Result;
 import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.SelectProvider;
+import org.apache.ibatis.annotations.Update;
 import org.apache.ibatis.jdbc.SQL;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -69,6 +71,42 @@ public interface QuestionMapper extends BaseMapper<Question> {
     @Select("SELECT * FROM question WHERE gameday_id = #{gamedayId} AND source_question_id = #{sourceQuestionId} LIMIT 1")
     Question selectByGamedayIdAndSourceQuestionId(@Param("gamedayId") Integer gamedayId,
                                                   @Param("sourceQuestionId") Integer sourceQuestionId);
+
+    /**
+     * 批量查询比赛日全部题目，按来源唯一键判断缺题时不可限定当前分站。
+     */
+    @Select("SELECT * FROM question WHERE gameday_id = #{gamedayId} ORDER BY id ASC")
+    List<Question> selectByGamedayId(@Param("gamedayId") Integer gamedayId);
+
+    /**
+     * 仅在读取的内容和状态仍生效时刷新同步时间或修正状态，避免陈旧实体覆盖新快照。
+     * 返回零行表示并发变更，不应回退为全字段更新；空哈希、空状态也参与条件比较。
+     * 纯同步时间刷新显式保持 updated_at，避免数据库 ON UPDATE 自动更新时间。
+     */
+    @Update("""
+            <script>
+            UPDATE question
+            SET last_synced_at = #{now},
+                <choose>
+                    <when test="statusChanged">
+                        status = #{status}, updated_at = #{now}
+                    </when>
+                    <otherwise>
+                        updated_at = updated_at
+                    </otherwise>
+                </choose>
+            WHERE id = #{id} AND gameday_id = #{gamedayId}
+              AND content_hash &lt;=> #{expectedContentHash}
+              AND status &lt;=> #{expectedStatus}
+            </script>
+            """)
+    int updateStatusIfUnchanged(@Param("id") Long id,
+                                @Param("gamedayId") Integer gamedayId,
+                                @Param("expectedContentHash") String expectedContentHash,
+                                @Param("expectedStatus") String expectedStatus,
+                                @Param("status") String status,
+                                @Param("now") Instant now,
+                                @Param("statusChanged") boolean statusChanged);
 
     /**
      * 内部 SQL 提供器：将 selectByRound 的动态 SQL 生成逻辑内聚于此，
