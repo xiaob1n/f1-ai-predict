@@ -92,8 +92,20 @@ public class PredictionRequestSnapshotResolver {
             Integer gamedayId = question.getGamedayId();
             List<MeetingSessionDto> matching = sessions == null ? List.of() : sessions.stream()
                     .filter(session -> Objects.equals(session.getGamedayId(), gamedayId)).toList();
-            Integer meetingKey = matching.size() == 1 ? matching.getFirst().getMeetingKey() : null;
-            Integer sessionKey = matching.size() == 1 ? matching.getFirst().getSessionKey() : null;
+            if (matching.isEmpty() || matching.stream().anyMatch(session -> !isValidKey(session.getMeetingKey()))) {
+                throw new InvalidRequestException("Prediction meeting context is incomplete");
+            }
+            Integer meetingKey = matching.getFirst().getMeetingKey();
+            if (matching.stream().anyMatch(session -> !Objects.equals(session.getMeetingKey(), meetingKey))) {
+                throw new InvalidRequestException("Prediction meeting context is ambiguous");
+            }
+            Integer sessionKey = null;
+            if (matching.size() == 1) {
+                sessionKey = matching.getFirst().getSessionKey();
+                if (!isValidKey(sessionKey)) {
+                    throw new InvalidRequestException("Prediction session context is incomplete");
+                }
+            }
             JsonNode config = raw.get("Config");
             frozen.put(view.getQuestionId(), new FrozenQuestion(text,
                     nullableText(raw.get("SubText")), nullableInteger(raw.get("OptionTemplateId")),
@@ -102,6 +114,10 @@ public class PredictionRequestSnapshotResolver {
         }
         return new FrozenBatch(round.getSeasonId(), season.getYear(), round.getRoundNumber(),
                 round.getCircuitName(), Map.copyOf(frozen));
+    }
+
+    private static boolean isValidKey(Integer key) {
+        return key != null && key > 0;
     }
 
     private static String nullableText(JsonNode node) {
@@ -116,7 +132,7 @@ public class PredictionRequestSnapshotResolver {
     public record FrozenBatch(Long seasonId, Integer year, Integer roundNumber,
                               String trackName, Map<Long, FrozenQuestion> questions) { }
 
-    /** 题目正文取自快照；比赛日用于唯一 Session 匹配。 */
+    /** 题目正文取自快照；比赛日用于同站匹配，多 Session 时不猜测。 */
     public record FrozenQuestion(String questionText, String subText, Integer optionTemplateId,
                                  Integer choiceLimit, Integer gamedayId,
                                  Integer meetingKey, Integer sessionKey) { }

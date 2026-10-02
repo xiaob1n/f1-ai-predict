@@ -30,6 +30,7 @@ from f1_predict.prediction.policy import (
     UnsupportedQuestion,
     VersionUnavailable,
 )
+from f1_predict.prediction.replay_context import ReplayContext
 from f1_predict.reliability.idempotency import InboxClaim, InboxStore
 
 
@@ -50,6 +51,7 @@ class PredictionProcessor:
         *,
         max_attempts: int = 3,
         lease_seconds: int = 90,
+        replay_context: ReplayContext | None = None,
     ) -> None:
         self.store = store
         self.repository = repository
@@ -57,6 +59,7 @@ class PredictionProcessor:
         self.policy = policy
         self.max_attempts = max_attempts
         self.lease_seconds = lease_seconds
+        self.replay_context = replay_context
 
     async def process_once(self) -> bool:
         """领取一条到期任务，网络调用始终在 SQLite 事务外。"""
@@ -68,6 +71,8 @@ class PredictionProcessor:
             if self.policy is None:
                 raise UnsupportedQuestion("snapshot is not registered")
             self.policy.check(request)
+            if self.replay_context is not None:
+                self.replay_context.verify(request, self.policy)
             policy_hash = hashlib.sha256(
                 self.policy.model_dump_json().encode("utf-8")
             ).hexdigest()
@@ -93,6 +98,8 @@ class PredictionProcessor:
                 )
                 features = json.loads(snapshot.frozen_json)
                 features["policyHash"] = policy_hash
+                if self.replay_context is not None:
+                    features.update(self.replay_context.frozen_fields())
                 await asyncio.to_thread(
                     self.store.save_feature_snapshot, request.prediction_job_id, claim.lease_token, features
                 )
@@ -101,6 +108,14 @@ class PredictionProcessor:
                 or features.get("policyHash") != policy_hash
                 or features["featureVersion"] != request.feature_version
                 or features["dataCutoff"] != request.data_cutoff.isoformat().replace("+00:00", "Z")
+                or (
+                    self.replay_context is not None
+                    and any(
+                        features.get(key) != value
+                        for key, value in self.replay_context.frozen_fields().items()
+                    )
+                )
+                or (self.replay_context is None and "executionMode" in features)
             ):
                 raise VersionUnavailable("frozen feature identity differs from request")
             if features["status"] != "READY":
@@ -114,6 +129,12 @@ class PredictionProcessor:
                 ],
                 "features": {"drivers": features["drivers"]},
             }
+            if self.replay_context is not None:
+                context_data["predictionTask"] = {
+                    "kind": "HISTORICAL_ENGINEERING_REPLAY",
+                    "optionDrivers": self.policy.option_drivers,
+                    "instruction": "仅比较已登记练习圈速，返回登记选项之一；分数未经校准。",
+                }
             if isinstance(self.policy, BothAdvanceQ1Policy):
                 # 题目语义和晋级门槛来自人工登记策略，而非模型或选项文字推断。
                 context_data["predictionTask"] = {
@@ -160,7 +181,11 @@ class PredictionProcessor:
                 confidence=candidate.confidence,
                 evidence=evidence,
                 generated_at=datetime.now(UTC),
-                reasoning_summary=candidate.reasoning_summary,
+                reasoning_summary=(
+                    self.replay_context.summary(candidate.reasoning_summary)
+                    if self.replay_context is not None
+                    else candidate.reasoning_summary
+                ),
             )
             await asyncio.to_thread(
                 self.store.finish,

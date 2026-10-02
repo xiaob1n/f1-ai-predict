@@ -20,6 +20,8 @@ from f1_predict.prediction.data import load_lap_fixture
 from f1_predict.prediction.model_http import LocalJsonModel
 from f1_predict.prediction.policy import BothAdvanceQ1Policy, load_policy
 from f1_predict.prediction.processor import PredictionProcessor
+from f1_predict.prediction.replay_context import ReplayContext
+from f1_predict.prediction.replay_model import ReplayBaselineModel
 from f1_predict.reliability.idempotency import InboxStore
 from f1_predict.worker.consumer import process_delivery
 from f1_predict.worker.publisher import ResultPublisher
@@ -131,11 +133,26 @@ async def run(settings: Settings) -> None:
     store = InboxStore(settings.consumer_sqlite_path)
     processor: PredictionProcessor | None = None
     if settings.prediction_enabled:
-        if not settings.prediction_policy_path or not settings.prediction_laps_path or not settings.model_url:
-            raise ValueError("enabled prediction requires policy, audited laps and model endpoint")
+        replay_stub = (settings.prediction_execution_mode == "HISTORICAL_ENGINEERING_REPLAY"
+                       and settings.prediction_replay_model_mode == "stub")
+        if not settings.prediction_policy_path or not settings.prediction_laps_path or (not replay_stub and not settings.model_url):
+            raise ValueError("enabled prediction requires policy, audited laps and model endpoint unless using replay stub")
         policy = load_policy(settings.prediction_policy_path)
+        replay_context = None
+        if settings.prediction_execution_mode == "HISTORICAL_ENGINEERING_REPLAY":
+            if isinstance(policy, BothAdvanceQ1Policy) or policy is None:
+                raise ValueError("historical replay requires a single-question snapshot policy")
+            replay_context = ReplayContext.load(
+                settings.prediction_replay_manifest_path,
+                settings.prediction_laps_path,
+                settings.prediction_policy_path,
+                model_mode=settings.prediction_replay_model_mode,
+                expected_manifest_hash=settings.prediction_replay_manifest_hash,
+            )
         supported_versions = (
-            ("prompt-q1-v1", "feature-q1-v1")
+            ("prompt-h2h-replay-v1", "feature-v1")
+            if replay_context is not None
+            else ("prompt-q1-v1", "feature-q1-v1")
             if isinstance(policy, BothAdvanceQ1Policy)
             else ("prompt-v1", "feature-v1")
         )
@@ -150,10 +167,11 @@ async def run(settings: Settings) -> None:
         processor = PredictionProcessor(
             store,
             load_lap_fixture(settings.prediction_laps_path),
-            LocalJsonModel(settings.model_url, settings.model_version, settings.model_timeout_seconds),
+            (ReplayBaselineModel() if replay_stub else LocalJsonModel(settings.model_url, settings.model_version, settings.model_timeout_seconds)),
             policy,
             max_attempts=settings.model_max_attempts,
             lease_seconds=max(90, int(settings.model_timeout_seconds) + 30),
+            replay_context=replay_context,
         )
     health_path = Path(
         settings.consumer_health_path

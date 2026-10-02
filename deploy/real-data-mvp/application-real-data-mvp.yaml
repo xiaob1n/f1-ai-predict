@@ -1,0 +1,45 @@
+# 必须作为唯一 spring.config.location 加载，禁止叠加仓库默认/Nacos 配置。
+server:
+  address: 127.0.0.1
+  port: 18790
+spring:
+  application:
+    name: f1aipredict-real-data-mvp
+  cloud:
+    nacos:
+      config:
+        enabled: false
+      discovery:
+        enabled: false
+  datasource:
+    url: jdbc:mysql://127.0.0.1:13316/f1_ai_predict?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true
+    username: ${MVP_MYSQL_USER}
+    password: ${MVP_MYSQL_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  rabbitmq:
+    host: 127.0.0.1
+    port: 15683
+    username: ${MVP_RABBIT_USER}
+    password: ${MVP_RABBIT_PASSWORD}
+    virtual-host: /f1predict-mvp
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+f1predict:
+  feed:
+    base-url: http://127.0.0.1:1
+  sync:
+    scheduler:
+      enabled: false
+  prediction:
+    outcome:
+      enabled: true
+f1:
+  prediction:
+    outbox:
+      enabled: true
+      scan-delay-ms: 1000
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true

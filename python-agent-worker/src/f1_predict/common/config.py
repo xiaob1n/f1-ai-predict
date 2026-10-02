@@ -51,6 +51,18 @@ class Settings(BaseSettings):
     prediction_laps_path: str = ""
     """只读、经过审计的本地圈速 fixture 文件路径。"""
 
+    prediction_execution_mode: Literal["AUDITED", "HISTORICAL_ENGINEERING_REPLAY"] = "AUDITED"
+    """历史工程回放只允许由受控部署配置启用，不从请求或模型输出推断。"""
+
+    prediction_replay_manifest_path: str = ""
+    """历史工程回放的已冻结清单；常规模式不得配置。"""
+
+    prediction_replay_manifest_hash: str = Field(default="", pattern=r"^(?:[a-f0-9]{64})?$")
+    """从独立审查记录配置的 canonical 摘要，不由待加载的包自报。"""
+
+    prediction_replay_model_mode: Literal["stub", "real"] = "stub"
+    """回放模型类别由部署确定，须与清单声明一致。"""
+
     model_url: str = ""
     """推理服务地址；为空时不得请求外部模型。"""
 
@@ -106,20 +118,30 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_prediction_configuration(self) -> Settings:
         """仅在策略、已审计圈速 fixture 与模型服务均配置时启用推理。"""
+        replay_stub = (self.prediction_execution_mode == "HISTORICAL_ENGINEERING_REPLAY"
+                       and self.prediction_replay_model_mode == "stub")
         if self.prediction_enabled:
             missing = [
                 name
                 for name, value in (
                     ("prediction_policy_path", self.prediction_policy_path),
                     ("prediction_laps_path", self.prediction_laps_path),
-                    ("model_url", self.model_url),
+                    ("model_url", self.model_url if not replay_stub else "local-stub"),
                 )
                 if not value.strip()
             ]
+            if replay_stub and self.model_url.strip():
+                raise ValueError("historical replay stub must not configure a model endpoint")
             if missing:
                 raise ValueError(
                     "prediction_enabled requires configured " + ", ".join(missing)
                 )
+        if self.prediction_execution_mode == "HISTORICAL_ENGINEERING_REPLAY":
+            if (not self.prediction_enabled or not self.prediction_replay_manifest_path.strip()
+                    or not self.prediction_replay_manifest_hash):
+                raise ValueError("historical replay requires enabled prediction, a manifest and its approved hash")
+        elif self.prediction_replay_manifest_path.strip() or self.prediction_replay_manifest_hash:
+            raise ValueError("replay manifest requires historical replay mode")
         return self
 
     @field_validator("log_level", mode="before")
