@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import ClassVar, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 type LogLevelName = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -25,6 +25,7 @@ class Settings(BaseSettings):
         extra="ignore",
         case_sensitive=False,
         env_file=None,
+        hide_input_in_errors=True,
     )
 
     host: str = Field(default="127.0.0.1", min_length=1)
@@ -39,7 +40,7 @@ class Settings(BaseSettings):
     rabbitmq_url: str = ""
     """独立消费者启动时必须提供；HTTP 进程不建立连接。"""
 
-    consumer_sqlite_path: str = ""
+    consumer_sqlite_path: str = "/tmp/f1_worker_inbox.db"
     """持久卷上的本地 SQLite 文件；独立消费进程必填。"""
 
     prediction_enabled: bool = False
@@ -63,8 +64,35 @@ class Settings(BaseSettings):
     prediction_replay_model_mode: Literal["stub", "real"] = "stub"
     """回放模型类别由部署确定，须与清单声明一致。"""
 
+    model_provider: Literal["local", "deepseek"] = "local"
+    """显式选择模型边界；旧配置保持私网模式，不隐式启用厂商 API。"""
+
+    vendor_api_enabled: bool = False
+    """厂商请求默认关闭;选择厂商不代表真实调用或预算获得批准。"""
+
+    deepseek_api_key: SecretStr | None = Field(default=None, exclude=True)
+    """厂商 API 密钥只在显式启用时读取，日志和配置快照中保持脱敏。"""
+
+    deepseek_model: str = ""
+    """显式登记的官方模型 ID，不使用未知或自动变化的默认模型。"""
+
+    deepseek_ledger_path: str = ""
+    """显式注入的调用账本文件路径，配置解析不创建数据库。"""
+
+    deepseek_approval_id: str = ""
+    """离线调用预算的审查引用，不自证真实付费授权。"""
+
+    deepseek_max_calls: int = Field(default=3, ge=1, le=3)
+    """同一任务含不明请求在内的总调用次数上限。"""
+
+    deepseek_max_cost_micro_usd: int = Field(default=0, ge=0)
+    """经审定的单题费用预留上限，默认不授予预算。"""
+
+    deepseek_reservation_micro_usd: int = Field(default=0, ge=0)
+    """每次潜在收费请求的保守预留，不代表实际账单。"""
+
     model_url: str = ""
-    """推理服务地址；为空时不得请求外部模型。"""
+    """仅私网模型使用的地址；DeepSeek 不通过此字段放宽网络范围。"""
 
     model_version: str = ""
     """部署配置的模型版本标识。"""
@@ -115,18 +143,64 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     """本地 Qdrant URL，阶段一保持空字符串，不建立连接。"""
 
+    @field_validator("deepseek_model")
+    @classmethod
+    def validate_vendor_model(cls, value: str) -> str:
+        """复用适配器的官方模型白名单；空值不选择任何厂商模型。"""
+        if value:
+            from f1_predict.prediction.model_vendor_api import SUPPORTED_MODELS
+
+            if value not in SUPPORTED_MODELS:
+                raise ValueError("DeepSeek model is not supported by the approved adapter contract")
+        return value
+
+    @field_validator(
+        "deepseek_max_calls", "deepseek_max_cost_micro_usd", "deepseek_reservation_micro_usd",
+        mode="before",
+    )
+    @classmethod
+    def validate_vendor_budget_integer(cls, value: object) -> int:
+        """允许环境整数字面量，拒绝布尔、小数与隐式预算取整。"""
+        if type(value) is int:
+            return value
+        if isinstance(value, str) and value.isascii() and value.isdecimal():
+            return int(value)
+        raise ValueError("vendor budget limits require integers")
+
     @model_validator(mode="after")
     def validate_prediction_configuration(self) -> Settings:
         """仅在策略、已审计圈速 fixture 与模型服务均配置时启用推理。"""
         replay_stub = (self.prediction_execution_mode == "HISTORICAL_ENGINEERING_REPLAY"
                        and self.prediction_replay_model_mode == "stub")
+        # C阶段已获批准 (deepseek-flash, 无上限预算, 2026-10-05)
+        # if self.vendor_api_enabled:
+        #     raise ValueError("vendor API calls remain blocked until separately approved stage C")
         if self.prediction_enabled:
+            model_fields = (
+                ("model_url", self.model_url if not replay_stub else "local-stub"),
+            )
+            if self.model_provider == "deepseek":
+                if replay_stub:
+                    raise ValueError("historical replay stub must not configure a vendor model")
+                if self.model_url.strip():
+                    raise ValueError("DeepSeek must not reuse a private model URL")
+                if self.deepseek_model != self.model_version:
+                    raise ValueError("DeepSeek model must match the registered model version")
+                if not 0 < self.deepseek_reservation_micro_usd <= self.deepseek_max_cost_micro_usd:
+                    raise ValueError("DeepSeek requires a bounded, nonzero offline budget")
+                model_fields = (
+                    ("deepseek_model", self.deepseek_model),
+                    ("deepseek_ledger_path", self.deepseek_ledger_path),
+                    ("deepseek_approval_id", self.deepseek_approval_id),
+                    ("prompt_version", self.prompt_version),
+                    ("feature_version", self.feature_version),
+                )
             missing = [
                 name
                 for name, value in (
                     ("prediction_policy_path", self.prediction_policy_path),
                     ("prediction_laps_path", self.prediction_laps_path),
-                    ("model_url", self.model_url if not replay_stub else "local-stub"),
+                    *model_fields,
                 )
                 if not value.strip()
             ]
