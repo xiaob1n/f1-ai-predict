@@ -67,6 +67,9 @@ public class PredictionBatchTransactionExecutor {
         batch.setBatchNo(nextBatchNo);
         batch.setStatus(PredictionBatchStatus.PENDING.name());
         batch.setDataCutoff(context.dataCutoff());
+        batch.setFeatureVersion(context.featureVersion());
+        batch.setModelVersion(context.modelVersion());
+        batch.setPromptVersion(context.promptVersion());
         batch.setQuestionCount(questionCount);
         requireSingleRow(batchMapper.insert(batch), "Prediction batch insert failed");
         if (batch.getId() == null) {

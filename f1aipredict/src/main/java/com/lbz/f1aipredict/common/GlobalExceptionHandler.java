@@ -78,6 +78,14 @@ public class GlobalExceptionHandler {
             MethodArgumentTypeMismatchException.class})
     public ResponseEntity<ApiErrorResponse> handleBindingFailure(Exception ex) {
         log.info("请求绑定失败: errorType={}", ex.getClass().getSimpleName());
+        // 临时输出详细验证错误用于C阶段调试
+        if (ex instanceof MethodArgumentNotValidException) {
+            MethodArgumentNotValidException validEx = (MethodArgumentNotValidException) ex;
+            log.error("验证失败详情: {}", validEx.getBindingResult().getAllErrors());
+        } else if (ex instanceof BindException) {
+            BindException bindEx = (BindException) ex;
+            log.error("绑定失败详情: {}", bindEx.getAllErrors());
+        }
         ApiErrorResponse body = ApiErrorResponse.builder()
                 .code("INVALID_REQUEST")
                 .message(INVALID_REQUEST_MESSAGE)

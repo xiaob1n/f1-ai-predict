@@ -40,6 +40,18 @@ public class PredictionBatch {
     @TableField("data_cutoff")
     private Instant dataCutoff;
 
+    /** 特征版本 */
+    @TableField("feature_version")
+    private String featureVersion;
+
+    /** 模型版本 */
+    @TableField("model_version")
+    private String modelVersion;
+
+    /** Prompt版本 */
+    @TableField("prompt_version")
+    private String promptVersion;
+
     /** 批次内题目总数，默认 0 */
     @TableField("question_count")
     private Integer questionCount;
