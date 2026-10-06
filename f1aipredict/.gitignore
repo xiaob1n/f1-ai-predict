@@ -35,6 +35,7 @@ build/
 /src/test/**
 !/src/test/**/
 !/src/test/java/com/lbz/f1aipredict/prediction/inbound/OutcomeMessageParserTest.java
+!/src/test/java/com/lbz/f1aipredict/prediction/service/impl/PredictionRequestSnapshotResolverTest.java
 !/src/test/java/com/lbz/f1aipredict/sync/service/FeedSyncServiceQuestionsTest.java
 !/src/test/java/com/lbz/f1aipredict/question/mapper/QuestionStatusUpdateSqlTest.java
 !/src/test/resources/prediction_request_v2.json

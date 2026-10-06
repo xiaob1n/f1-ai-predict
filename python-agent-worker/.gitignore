@@ -49,3 +49,20 @@ Thumbs.db
 /tests/**
 !/tests/**/
 !/tests/messaging/dto/test_result_failure_v2.py
+!/tests/prediction/test_replay_context.py
+!/tests/replay/test_export.py
+!/tests/replay/test_manifest.py
+!/tests/replay/test_source.py
+!/tests/replay/test_bundle.py
+!/tests/replay/test_isolated.py
+!/tests/replay/test_workflow.py
+
+# 放行 A 阶段厂商 Fake、公共接线和受控运行时回归，不放行缓存或秘密
+!/tests/common/test_deepseek_config.py
+!/tests/prediction/test_model_vendor_api.py
+!/tests/prediction/test_model_calls.py
+!/tests/prediction/test_vendor_processor.py
+!/tests/worker/test_vendor_bootstrap.py
+!/tests/replay/test_cli.py
+!/tests/replay/test_connections.py
+!/tests/replay/test_runtime.py

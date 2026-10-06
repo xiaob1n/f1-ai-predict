@@ -23,6 +23,4 @@
 
 # 保留历史测试忽略范围，仅放行本次交付的跨语言契约测试
 python-agent-worker/tests/**
-!python-agent-worker/tests/**/
-!python-agent-worker/tests/messaging/dto/test_result_failure_v2.py
 
