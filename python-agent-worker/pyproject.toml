@@ -13,10 +13,19 @@ requires-python = ">=3.12"
 dependencies = [
     "aio-pika>=9.4,<10",
     "fastapi",
+    "httpx>=0.28.1",
+    "openai>=2.11.0",
     "pydantic",
     "pydantic-settings",
     "structlog",
     "uvicorn",
+]
+
+[project.optional-dependencies]
+# DeepSeek 官方示例使用 OpenAI 兼容 SDK；仅显式安装本额外依赖时提供真实客户端。
+deepseek = [
+    "openai==2.11.0",
+    "httpx>=0.28.1,<0.29",
 ]
 
 [dependency-groups]
