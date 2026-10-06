@@ -21,6 +21,10 @@
 #opencode 配置
 .opencode/
 
-# 保留历史测试忽略范围，仅放行本次交付的跨语言契约测试
-python-agent-worker/tests/**
+# 文档统一归档在 docs 下，仅保留本地副本
+/docs/
 
+# 测试代码、样例和产物仅保留本地副本
+/tests/
+/python-agent-worker/tests/
+/f1aipredict/src/test/

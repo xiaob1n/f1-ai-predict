@@ -31,17 +31,6 @@ build/
 
 ### VS Code ###
 .vscode/
-# 历史测试仍忽略，仅放行本次交付的契约与共享样例
-/src/test/**
-!/src/test/**/
-!/src/test/java/com/lbz/f1aipredict/prediction/inbound/OutcomeMessageParserTest.java
-!/src/test/java/com/lbz/f1aipredict/prediction/service/impl/PredictionRequestSnapshotResolverTest.java
-!/src/test/java/com/lbz/f1aipredict/sync/service/FeedSyncServiceQuestionsTest.java
-!/src/test/java/com/lbz/f1aipredict/question/mapper/QuestionStatusUpdateSqlTest.java
-!/src/test/resources/prediction_request_v2.json
-!/src/test/resources/prediction_result_v2.json
-!/src/test/resources/prediction_failure_v2.json
-!/src/test/resources/sync/questions-sample.json
+# 测试由仓库根 .gitignore 统一忽略，不单独放行
 # Nacos 样例仅含环境变量占位，需与部署说明一起维护
 !nacos.example.yaml
-../python-agent-worker/tests
