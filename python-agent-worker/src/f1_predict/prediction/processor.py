@@ -23,7 +23,19 @@ from f1_predict.messaging.dto.result_v2 import (
     SelectedOptionV2,
 )
 from f1_predict.prediction.model import ModelCandidate, ModelGateway
+from f1_predict.prediction.model_calls import (
+    CallBudgetExceeded,
+    CallIdentityConflict,
+    CallNotPermitted,
+)
 from f1_predict.prediction.model_http import InvalidModelOutput, ModelUnavailable
+from f1_predict.prediction.model_vendor_api import (
+    DeepSeekModel,
+    ModelCallRejected,
+    ModelCallUncertain,
+    ModelInvocation,
+    RetryableModelFailure,
+)
 from f1_predict.prediction.policy import (
     BothAdvanceQ1Policy,
     SnapshotPolicy,
@@ -147,17 +159,36 @@ class PredictionProcessor:
                     "instruction": "赛前预测两名目标车手是否都能从 Q1 晋级 Q2；仅返回登记的是或否选项。",
                 }
             context = json.dumps(context_data, ensure_ascii=False)
-            try:
-                candidate = await self.model.predict(context)
-            except (TimeoutError, OSError, ConnectionError) as error:
-                raise ModelUnavailable("model service unavailable") from error
-            candidate = ModelCandidate.model_validate(candidate)
-            option_id = candidate.option_ids[0]
             allowed_options = (
                 {self.policy.yes_option_id, self.policy.no_option_id}
                 if isinstance(self.policy, BothAdvanceQ1Policy)
                 else set(self.policy.option_drivers)
             )
+            try:
+                if isinstance(self.model, DeepSeekModel):
+                    if self.model.config.model != request.model_version:
+                        raise VersionUnavailable("vendor model version differs from request")
+                    allowed_option_ids = tuple(sorted(allowed_options))
+                    gateway = self.model.bind(ModelInvocation(
+                        prediction_job_id=request.prediction_job_id,
+                        attempt=claim.attempt,
+                        lease_token=claim.lease_token,
+                        allowed_option_ids=allowed_option_ids,
+                        data_cutoff=request.data_cutoff,
+                        model_version=request.model_version,
+                        prompt_version=request.prompt_version,
+                        feature_version=request.feature_version,
+                    ))
+                else:
+                    gateway = self.model
+                candidate = await gateway.predict(context)
+            except (TimeoutError, OSError, ConnectionError) as error:
+                if isinstance(self.model, DeepSeekModel):
+                    # DeepSeek 传输已将不确定收费状态映射为专用异常；裸 I/O 错误可能来自账本，不能重试。
+                    raise
+                raise ModelUnavailable("model service unavailable") from error
+            candidate = ModelCandidate.model_validate(candidate)
+            option_id = candidate.option_ids[0]
             if option_id not in allowed_options or option_id not in {
                 item.option_id for item in request.question.options
             }:
@@ -196,11 +227,18 @@ class PredictionProcessor:
             )
         except UnsupportedQuestion:
             await self._fail(claim, request, PredictionFailureCode.UNSUPPORTED_QUESTION)
-        except VersionUnavailable:
+        except (VersionUnavailable, CallIdentityConflict):
             await self._fail(claim, request, PredictionFailureCode.VERSION_UNAVAILABLE)
+        except (ModelCallUncertain, ModelCallRejected, CallBudgetExceeded, CallNotPermitted):
+            await self._fail(claim, request, PredictionFailureCode.MODEL_FAILED)
+        except RetryableModelFailure:
+            await self._retry(claim, request)
         except (InvalidModelOutput, ValidationError, KeyError, IndexError, TypeError):
             await self._fail(claim, request, PredictionFailureCode.INVALID_MODEL_OUTPUT)
         except (ModelUnavailable, TimeoutError, OSError):
+            if isinstance(self.model, DeepSeekModel):
+                # DeepSeek 裸 I/O 异常不等同于供应商明确可重试响应。
+                raise
             await self._retry(claim, request)
         return True
 

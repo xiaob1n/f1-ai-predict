@@ -8,6 +8,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -115,22 +116,32 @@ class IsolatedLoader:
 
     def load(self, source: dict[str, Any], identity: dict[str, Any]) -> dict[str, Any]:
         """以单个短事务装载；不一致、非空冲突或无法证明提交结果时拒绝。"""
+        self.last_audit = None
         normalized = _validate_source(source, identity)
         self._validate_schema()
         cursor = self._connection.cursor()
+        commit_uncertain = False
         try:
             self._assert_source_tables_empty_or_replay(cursor, normalized)
             mapping = self._load_transaction(cursor, normalized)
             self._verify_final_counts(cursor, normalized)
-            self._connection.commit()
+            try:
+                self._connection.commit()
+            except Exception:
+                commit_uncertain = True
+                raise
             self.last_audit = _build_local_audit(normalized)
             return mapping
         except Exception:
+            rollback_succeeded = False
             try:
                 self._connection.rollback()
+                rollback_succeeded = True
             except Exception:  # noqa: BLE001, S110
                 pass
-            # COMMIT 响应丢失时只接受数据库读回的完整一致结果，不盲目重写。
+            # 仅 COMMIT 自身抛错且本地事务已结束时，才可读回证明持久化成功。
+            if not commit_uncertain or not rollback_succeeded:
+                raise
             read_cursor = None
             try:
                 read_cursor = self._connection.cursor()
@@ -312,8 +323,8 @@ class IsolatedLoader:
             (round_id, q["gamedayId"], q["sourceQuestionId"], q["questionNo"], snap["raw"]["Text"], snap["raw"]["SubText"], snap["raw"]["OptionTemplateId"], snap["raw"]["Config"]["ChoiceLimit"], snap["contentHash"], _mysql_datetime(q["firstSeenAt"]), _mysql_datetime(q["firstSeenAt"])))
         raw_json = json.dumps(snap["raw"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         snapshot_id = self._insert_or_match(cursor, "question_snapshot", (), (),
-            "SELECT id, content_hash, raw_json, snapshot_reason, created_at FROM question_snapshot WHERE question_id = %s AND snapshot_no = %s",
-            (question_id, snap["snapshotNo"]), (snap["contentHash"], raw_json, "INITIAL", snap["createdAt"]),
+            "SELECT id, snapshot_no, content_hash, raw_json, snapshot_reason, created_at FROM question_snapshot WHERE question_id = %s AND snapshot_no = %s",
+            (question_id, snap["snapshotNo"]), (snap["snapshotNo"], snap["contentHash"], raw_json, "INITIAL", _mysql_datetime(snap["createdAt"])),
             "INSERT INTO question_snapshot (question_id, snapshot_no, content_hash, raw_json, snapshot_reason, created_at) VALUES (%s,%s,%s,%s,%s,%s)",
             (question_id, snap["snapshotNo"], snap["contentHash"], raw_json, "INITIAL", _mysql_datetime(snap["createdAt"])))
         self._match_or_insert_options(cursor, snapshot_id, data["options"])
@@ -328,7 +339,7 @@ class IsolatedLoader:
         cursor.execute(select_sql, select_params)
         row = cursor.fetchone()
         if row is not None:
-            if tuple(_normalize_db(v) for v in row[1:]) != tuple(_normalize_db(v) for v in expected):
+            if _normalize_row(table, row[1:]) != _normalize_row(table, expected):
                 raise ValueError(f"existing {table} row conflicts with imported source content")
             return int(row[0])
         cursor.execute(insert_sql, insert_params)
@@ -337,7 +348,7 @@ class IsolatedLoader:
             raise ValueError(f"database did not return an actual {table} id")
         cursor.execute(select_sql, select_params)
         row = cursor.fetchone()
-        if row is None or int(row[0]) != identifier or tuple(_normalize_db(v) for v in row[1:]) != tuple(_normalize_db(v) for v in expected):
+        if row is None or int(row[0]) != identifier or _normalize_row(table, row[1:]) != _normalize_row(table, expected):
             raise ValueError(f"inserted {table} row failed database readback")
         return identifier
 
@@ -371,9 +382,10 @@ class IsolatedLoader:
         try:
             self._verify_final_counts(cursor, data)
             season, round_data = data["season"], data["round"]
-            cursor.execute("SELECT id, name, status FROM season WHERE year = %s", (season["year"],))
+            cursor.execute("SELECT id, name, status, start_date, end_date FROM season WHERE year = %s", (season["year"],))
             season_row = cursor.fetchone()
-            if season_row is None or tuple(season_row[1:]) != (season["name"], season["status"]):
+            expected_season = (season["name"], season["status"], None, None)
+            if season_row is None or _normalize_row("season", season_row[1:]) != _normalize_row("season", expected_season):
                 return None
             season_id = int(season_row[0])
             cursor.execute("SELECT id, grand_prix_name, circuit_name, country, locality, start_date, end_date, status FROM `round` WHERE season_id = %s AND round_number = %s", (season_id, round_data["roundNumber"]))
@@ -397,10 +409,11 @@ class IsolatedLoader:
             question_id, snapshot_id = int(row[0]), int(row[1])
             if int(row[2]) != round_id:
                 return None
-            cursor.execute("SELECT content_hash, raw_json FROM question_snapshot WHERE id = %s AND question_id = %s", (snapshot_id, question_id))
+            cursor.execute("SELECT snapshot_no, content_hash, raw_json, snapshot_reason, created_at FROM question_snapshot WHERE id = %s AND question_id = %s", (snapshot_id, question_id))
             snapshot = cursor.fetchone()
-            expected_raw = json.dumps(data["snapshot"]["raw"], ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-            if snapshot is None or snapshot[0] != data["snapshot"]["contentHash"] or _json_value(snapshot[1]) != json.loads(expected_raw):
+            snap = data["snapshot"]
+            expected_snapshot = (snap["snapshotNo"], snap["contentHash"], snap["raw"], "INITIAL", _mysql_datetime(snap["createdAt"]))
+            if snapshot is None or _normalize_row("question_snapshot", snapshot) != _normalize_row("question_snapshot", expected_snapshot):
                 return None
             for index, option in enumerate(data["options"]):
                 cursor.execute("SELECT option_id, option_text, points, chance, is_answer FROM question_option WHERE snapshot_id = %s AND option_no = %s", (snapshot_id, index))
@@ -506,6 +519,14 @@ def _positive(value: Any, name: str) -> int:
     return value
 
 
+def _normalize_row(table: str, values: tuple[Any, ...]) -> tuple[Any, ...]:
+    """装载与恢复共用字段比较；快照投影的第三列 JSON 按语义比较。"""
+    return tuple(
+        _json_value(value) if table == "question_snapshot" and index == 2 else _normalize_db(value)
+        for index, value in enumerate(values)
+    )
+
+
 def _normalize_db(value: Any) -> Any:
     if isinstance(value, datetime):
         return value.astimezone(UTC).replace(tzinfo=None) if value.tzinfo else value
@@ -531,10 +552,38 @@ def _mysql_datetime(value: Any) -> datetime | None:
     return parsed.astimezone(UTC).replace(tzinfo=None)
 
 
-def _json_value(value: Any) -> Any:
+def _json_value(value: Any) -> tuple[Any, ...]:
+    """只解析最外层数据库 JSON 字符串，再按 JSON 类型生成比较键。"""
     if isinstance(value, str):
-        try:
-            return json.loads(value)
-        except json.JSONDecodeError:
-            return value
-    return value
+        value = json.loads(value, parse_float=Decimal, parse_constant=_reject_json_constant)
+    return _json_comparison_key(value)
+
+
+def _reject_json_constant(_value: str) -> Any:
+    """拒绝 Python 解码器默认接纳的非 JSON 数值常量。"""
+    raise ValueError("snapshot JSON must contain only finite numbers")
+
+
+def _json_comparison_key(value: Any) -> tuple[Any, ...]:
+    """区分 JSON 种类，保留对象顺序无关和有限数字的语义等价。"""
+    if value is None:
+        return ("null",)
+    if isinstance(value, bool):
+        return ("boolean", value)
+    if isinstance(value, (int, float, Decimal)):
+        # 按十进制文本还原 float，避免 JSON 解码舍入掩盖不同数字。
+        number = Decimal(str(value)) if isinstance(value, float) else Decimal(value)
+        if not number.is_finite():
+            raise ValueError("snapshot JSON must contain only finite numbers")
+        return ("number", number)
+    if isinstance(value, str):
+        return ("string", value)
+    if isinstance(value, list):
+        return ("array", tuple(_json_comparison_key(item) for item in value))
+    if isinstance(value, Mapping):
+        if any(not isinstance(key, str) for key in value):
+            raise ValueError("snapshot JSON object keys must be strings")
+        return ("object", tuple(
+            (key, _json_comparison_key(value[key])) for key in sorted(value)
+        ))
+    raise ValueError("snapshot JSON contains an unsupported value type")

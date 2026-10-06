@@ -34,6 +34,7 @@ async def process_delivery(
     message: Delivery, store: InboxStore, settings: Settings
 ) -> None:
     """数据库故障向外传播，由调用方关 channel 让未确认消息重投。"""
+    logger.info("process_delivery 开始: body_size=%d", len(message.body))
     reason: str | None = None
     request: PredictionRequestV2 | None = None
     if len(message.body) > settings.consumer_max_message_bytes:
@@ -51,13 +52,18 @@ async def process_delivery(
             reason = "invalid_request"
 
     if request is not None:
+        logger.info("请求解析成功: predictionJobId=%s, messageId=%s",
+                   request.prediction_job_id, request.message_id)
         outcome = await asyncio.to_thread(store.save, request)
+        logger.info("store.save 完成: outcome=%s", outcome)
         if outcome in ("inserted", "duplicate"):
+            logger.info("消息ACK: outcome=%s", outcome)
             await message.ack()
             return
         reason = "conflicting_prediction_job_id"
 
     assert reason is not None
+    logger.warning("消息被拒绝: reason=%s", reason)
     await asyncio.to_thread(
         store.quarantine, message.body, reason, settings.consumer_max_message_bytes
     )
