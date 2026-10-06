@@ -29,6 +29,11 @@ spring:
 f1predict:
   feed:
     base-url: http://127.0.0.1:1
+    schedule-path: /feeds/schedule/raceday_en.json
+    limits-path: /feeds/limits/constraints.json
+    questions-path: /feeds/questions/{gamedayId}/questions_en.json
+    mix-api-path: /feeds/live/mixapi.json
+    web-config-path: /feeds/apps/web_config.json
   sync:
     scheduler:
       enabled: false
