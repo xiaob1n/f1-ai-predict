@@ -1,6 +1,7 @@
 package com.lbz.f1aipredict.prediction.outbox;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
@@ -11,6 +12,23 @@ import java.util.List;
 /** 原子租约更新保证多个发布实例不同时领取同一消息。 */
 @Mapper
 public interface PredictionRequestOutboxMapper extends BaseMapper<PredictionRequestOutbox> {
+
+    /**
+     * 插入 Outbox 记录，所有时间戳字段使用 UTC_TIMESTAMP(3) 避免时区问题。
+     *
+     * @param predictionJobId 预测任务 ID
+     * @param messageId 消息 ID
+     * @param payloadJson 序列化的请求载荷
+     * @return 影响行数
+     */
+    @Insert("INSERT INTO prediction_request_outbox " +
+            "(prediction_job_id, message_id, payload_json, status, attempts, " +
+            "next_attempt_at, created_at, updated_at) " +
+            "VALUES (#{predictionJobId}, #{messageId}, #{payloadJson}, 'PENDING', 0, " +
+            "UTC_TIMESTAMP(3), UTC_TIMESTAMP(3), UTC_TIMESTAMP(3))")
+    int insertWithUtcTimestamp(@Param("predictionJobId") String predictionJobId,
+                               @Param("messageId") String messageId,
+                               @Param("payloadJson") String payloadJson);
 
     /** 读取不可变请求载荷，用于校验消息与创建时冻结上下文一致。 */
     @Select("SELECT * FROM prediction_request_outbox WHERE prediction_job_id = #{predictionJobId} LIMIT 1")
