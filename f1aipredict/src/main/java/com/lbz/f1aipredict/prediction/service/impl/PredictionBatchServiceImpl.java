@@ -90,6 +90,7 @@ public class PredictionBatchServiceImpl implements PredictionBatchService {
         PredictionBatchCreateContext context = new PredictionBatchCreateContext(
                 roundId,
                 request.getDataCutoff(),
+                request.getPredictionDeadline(),
                 request.getFeatureVersion(),
                 request.getModelVersion(),
                 request.getPromptVersion(),
@@ -248,6 +249,15 @@ public class PredictionBatchServiceImpl implements PredictionBatchService {
         // 数据库 DATETIME(3) 与请求 outbox 必须使用同一个精确的截止时间，不允许隐式截断。
         if (request.getDataCutoff().getNano() % 1_000_000 != 0) {
             throw new InvalidRequestException("dataCutoff must have millisecond precision");
+        }
+        // 业务截止独立存储，不能回退为数据可见性截止；两者精度与数据库 DATETIME(3) 对齐。
+        if (request.getPredictionDeadline() != null) {
+            if (request.getPredictionDeadline().getNano() % 1_000_000 != 0) {
+                throw new InvalidRequestException("predictionDeadline must have millisecond precision");
+            }
+            if (request.getDataCutoff().isAfter(request.getPredictionDeadline())) {
+                throw new InvalidRequestException("dataCutoff must not be after predictionDeadline");
+            }
         }
         // Service 可被非 HTTP 调用，版本长度必须在任何只读服务和写入前再次守住数据库列宽。
         if (request.getFeatureVersion().length() > CreatePredictionBatchRequest.FEATURE_VERSION_MAX_LENGTH

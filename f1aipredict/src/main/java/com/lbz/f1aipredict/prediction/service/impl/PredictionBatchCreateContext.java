@@ -10,6 +10,7 @@ import java.util.Objects;
 public record PredictionBatchCreateContext(
         Long roundId,
         Instant dataCutoff,
+        Instant predictionDeadline,
         String featureVersion,
         String modelVersion,
         String promptVersion,

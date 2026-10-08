@@ -62,6 +62,11 @@ public class CreatePredictionBatchRequest {
     @NotNull
     private Instant dataCutoff;
 
+    /** 业务预测截止时间，独立于数据可见性截止；历史调用可暂不填写。 */
+    @JsonProperty("predictionDeadline")
+    @JsonDeserialize(using = OffsetInstantDeserializer.class)
+    private Instant predictionDeadline;
+
     /** 特征版本，对应 SQL VARCHAR(32)，拒绝空白。 */
     @JsonProperty("featureVersion")
     @NotBlank

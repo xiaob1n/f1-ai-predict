@@ -67,6 +67,8 @@ public class PredictionBatchTransactionExecutor {
         batch.setBatchNo(nextBatchNo);
         batch.setStatus(PredictionBatchStatus.PENDING.name());
         batch.setDataCutoff(context.dataCutoff());
+        batch.setPredictionDeadline(context.predictionDeadline());
+        batch.setLockVersion(0);
         batch.setFeatureVersion(context.featureVersion());
         batch.setModelVersion(context.modelVersion());
         batch.setPromptVersion(context.promptVersion());
@@ -80,17 +82,12 @@ public class PredictionBatchTransactionExecutor {
         for (PredictionQuestionView question : context.questions()) {
             PredictionJob job = newJob(batch.getId(), question, context);
             requireSingleRow(jobMapper.insert(job), "Prediction job insert failed");
-            PredictionRequestOutbox outbox = new PredictionRequestOutbox();
-            outbox.setPredictionJobId(job.getPredictionJobId());
-            outbox.setMessageId(job.getMessageId());
-            outbox.setPayloadJson(requestSerializer.serialize(job, question, context));
-            outbox.setStatus("PENDING");
-            outbox.setAttempts(0);
-            Instant now = Instant.now();
-            outbox.setNextAttemptAt(now);
-            outbox.setCreatedAt(now);
-            outbox.setUpdatedAt(now);
-            requireSingleRow(outboxMapper.insert(outbox), "Prediction outbox insert failed");
+            // 使用 UTC_TIMESTAMP(3) 插入，避免 Java Instant 与 MySQL 时区不一致
+            String payloadJson = requestSerializer.serialize(job, question, context);
+            requireSingleRow(
+                    outboxMapper.insertWithUtcTimestamp(job.getPredictionJobId(), job.getMessageId(), payloadJson),
+                    "Prediction outbox insert failed"
+            );
             jobIds.add(job.getPredictionJobId());
         }
 

@@ -5,6 +5,9 @@ import com.lbz.f1aipredict.prediction.entity.PredictionBatch;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+import java.time.Instant;
 
 /**
  * 预测批次 Mapper。
@@ -27,6 +30,13 @@ public interface PredictionBatchMapper extends BaseMapper<PredictionBatch> {
     /** 锁定批次行，与任务锁形成 job→batch 的固定锁顺序。 */
     @Select("SELECT * FROM prediction_batch WHERE id = #{batchId} FOR UPDATE")
     PredictionBatch selectByIdForUpdate(@Param("batchId") Long batchId);
+
+    /** 只有未锁定且版本匹配时才写入第一次锁定时间，防止重试或并发覆盖。 */
+    @Update("UPDATE prediction_batch SET locked_at = #{lockTime}, lock_version = lock_version + 1, "
+            + "updated_at = UTC_TIMESTAMP(3) WHERE id = #{batchId} AND locked_at IS NULL "
+            + "AND lock_version = #{expectedVersion} AND prediction_deadline <= #{lockTime}")
+    int lockIfUnchanged(@Param("batchId") Long batchId, @Param("expectedVersion") Integer expectedVersion,
+                        @Param("lockTime") Instant lockTime);
 
     /** 在终态事务中更新批次聚合状态。 */
     @org.apache.ibatis.annotations.Update("UPDATE prediction_batch SET status = #{status}, "

@@ -11,7 +11,7 @@ import java.time.Instant;
 
 /**
  * 预测批次实体，映射 {@code prediction_batch} 表。
- * 字段与 {@code sql/004_prediction.sql} 逐列对应：一轮比赛的一次整轮预测。
+ * 字段与 {@code sql/004_prediction.sql} 及 {@code sql/009_prediction_lock.sql} 对应：一轮比赛的一次整轮预测。
  * 状态列存 VARCHAR，取值复用 {@link com.lbz.f1aipredict.prediction.PredictionBatchStatus}，
  * 本实体不承载状态流转。
  */
@@ -39,6 +39,18 @@ public class PredictionBatch {
     /** 本批次统一数据截止时间(UTC)，DATETIME(3) → Instant */
     @TableField("data_cutoff")
     private Instant dataCutoff;
+
+    /** 业务预测截止时间(UTC)，独立于数据可见性截止。 */
+    @TableField("prediction_deadline")
+    private Instant predictionDeadline;
+
+    /** 实际锁定时间(UTC)，一经写入不得改变。 */
+    @TableField("locked_at")
+    private Instant lockedAt;
+
+    /** 锁定乐观锁版本，初值为零。 */
+    @TableField("lock_version")
+    private Integer lockVersion;
 
     /** 特征版本 */
     @TableField("feature_version")
