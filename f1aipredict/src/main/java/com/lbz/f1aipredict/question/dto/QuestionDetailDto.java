@@ -13,7 +13,7 @@ import java.util.List;
  * 题目详情 DTO。
  * <p>
  * 包含与 QuestionDto 相同的题目字段及选项列表（camelCase 显式 {@link JsonProperty}）。
- * options 默认初始化为空列表；questionType 首版固定为 UNKNOWN。
+ * options 默认初始化为空列表；questionType 缺省 UNKNOWN，可显式指定 SINGLE。
  */
 @Data
 @Builder
@@ -45,7 +45,7 @@ public class QuestionDetailDto {
     @JsonProperty("subText")
     private String subText;
 
-    /** 题目类型，首版固定为 UNKNOWN */
+    /** 题目类型，缺省 UNKNOWN，可显式指定 SINGLE */
     @JsonProperty("questionType")
     @Builder.Default
     private String questionType = "UNKNOWN";

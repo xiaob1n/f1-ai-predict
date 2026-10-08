@@ -14,7 +14,7 @@ import java.util.List;
  * <p>
  * 字段对应题目公开接口的展示形态（camelCase 显式 {@link JsonProperty}）。
  * options 默认初始化为空列表，避免未附带选项时序列化为 null。
- * questionType 首版固定为 UNKNOWN，后续由 Feed 同步映射替换。
+ * questionType 默认 UNKNOWN，支持显式 SINGLE；Feed 题型映射未落地时不推断类型。
  */
 @Data
 @Builder
@@ -46,7 +46,7 @@ public class QuestionDto {
     @JsonProperty("subText")
     private String subText;
 
-    /** 题目类型，首版固定为 UNKNOWN */
+    /** 题目类型，缺省 UNKNOWN，可显式指定 SINGLE */
     @JsonProperty("questionType")
     @Builder.Default
     private String questionType = "UNKNOWN";

@@ -34,6 +34,7 @@ public class PredictionRequestSerializer {
         Map<String, Object> question = new LinkedHashMap<>();
         question.put("questionText", frozen.questionText());
         question.put("subText", frozen.subText());
+        // 尚无可信的快照题型映射，保持 UNKNOWN；映射落地后从冻结字段取值。
         question.put("questionType", "UNKNOWN");
         question.put("optionTemplateId", frozen.optionTemplateId());
         question.put("choiceLimit", frozen.choiceLimit());

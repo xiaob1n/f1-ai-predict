@@ -24,7 +24,7 @@ class QuestionV2(F1PredictBaseModel):
 
     question_text: str = Field(alias="questionText", min_length=1)
     sub_text: str | None = Field(alias="subText")
-    question_type: Literal["UNKNOWN"] = Field(alias="questionType")
+    question_type: Literal["UNKNOWN", "SINGLE"] = Field(alias="questionType")
     option_template_id: int | None = Field(alias="optionTemplateId")
     choice_limit: int | None = Field(alias="choiceLimit")
     options: list[QuestionOptionV2] = Field(alias="options", min_length=1)
