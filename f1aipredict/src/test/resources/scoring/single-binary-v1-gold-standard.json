@@ -1,0 +1,873 @@
+{
+  "ruleVersion": "SINGLE_BINARY_V1",
+  "sample": {
+    "path": "/sync/questions-sample.json",
+    "sha256": "857d0ca0b5c078573a068a3a64656b97624cbe423bbe0e5be358301c6efd147c",
+    "questions": {
+      "109": {
+        "choiceLimit": 3,
+        "optionIds": [
+          124,
+          125,
+          126
+        ],
+        "answerIds": [
+          124
+        ]
+      },
+      "110": {
+        "choiceLimit": 1,
+        "optionIds": [
+          201,
+          202
+        ],
+        "answerIds": [
+          201
+        ]
+      }
+    }
+  },
+  "batchId": 17,
+  "roundId": 3,
+  "deadline": "2026-10-08T11:00:00Z",
+  "lockedAt": "2026-10-08T11:00:00.001Z",
+  "cases": [
+    {
+      "caseId": "case-01",
+      "scenario": "SCORE",
+      "description": "Q110 截止前 1 秒预测 201，命中官方答案",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "answerTimingProof 为新增断言：docs/design/java-api-design.md 6.0 判定表“publishedAt 与 createdAt 都为 NULL → UNKNOWN”；本例答案行两个时间均未设置",
+      "rationale": "原 q110Predict201BeforeDeadlineScoresOne，状态与分值原样迁移"
+    },
+    {
+      "caseId": "case-02",
+      "scenario": "SCORE",
+      "description": "Q110 截止前 1 秒预测 202，未命中得 0 分且满分 1",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 202,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "SCORED_ZERO",
+        "score": "0",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "answerTimingProof 为新增断言：docs/design/java-api-design.md 6.0 判定表“publishedAt 与 createdAt 都为 NULL → UNKNOWN”",
+      "rationale": "原 q110Predict202ScoresZeroWithOneMaximum，状态与分值原样迁移"
+    },
+    {
+      "caseId": "case-03",
+      "scenario": "SCORE",
+      "description": "Q110 接收凭证恰好等于截止时间仍计分；结果行 createdAt 刻意晚于截止",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "resultCreatedAt": "2026-10-08T11:00:05Z",
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T11:00:00Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN",
+        "detailReceivedAt": "2026-10-08T11:00:00Z"
+      },
+      "proposed": {
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "answerTimingProof 为新增断言：docs/design/java-api-design.md 6.0 判定表“publishedAt 与 createdAt 都为 NULL → UNKNOWN”",
+      "rationale": "原 q110ReceiptExactlyAtDeadlineStillScoresOne：真实受理凭证时间决定边界而非结果行 createdAt"
+    },
+    {
+      "caseId": "case-04",
+      "scenario": "SCORE",
+      "description": "Q110 接收凭证晚于截止 100 微秒为 LATE，不计入总分与满分",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T11:00:00.000100Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "LATE",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN",
+        "detailReceivedAt": "2026-10-08T11:00:00.000100Z",
+        "scoredAtPresent": false,
+        "batchTotal": {
+          "totalScore": "0",
+          "maxScore": "0",
+          "accuracyRate": null
+        }
+      },
+      "proposed": {
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "answerTimingProof 为新增断言：docs/design/java-api-design.md 6.0 判定表“publishedAt 与 createdAt 都为 NULL → UNKNOWN”；每行必写，LATE 行同样适用",
+      "rationale": "原 q110ReceiptOneHundredMicrosecondsAfterDeadlineIsLate，状态、分值、scoredAt 与批次汇总原样迁移"
+    },
+    {
+      "caseId": "case-05",
+      "scenario": "SCORE",
+      "description": "Q110 无当前官方答案为 NO_ANSWER",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "ABSENT",
+      "officialAnswerIds": [],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "NO_ANSWER",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "answerTimingProof 为新增断言：docs/design/java-api-design.md 6.0 判定表“无当前态答案 → UNKNOWN”",
+      "rationale": "原 q110WithoutCurrentOfficialAnswerIsNoAnswer，状态与分值原样迁移"
+    },
+    {
+      "caseId": "case-06",
+      "scenario": "RESCORE",
+      "description": "答案撤销后显式重算：先归档旧明细与旧总分，再写入 NO_ANSWER",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "previousOfficialAnswerIds": [
+        201
+      ],
+      "officialAnswerState": "REVOKED",
+      "officialAnswerIds": [],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "rescoreReason": "官方答案撤销",
+      "expected": {
+        "status": "NO_ANSWER",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN",
+        "absentDetailKeys": [
+          "officialAnswerId"
+        ],
+        "batchTotal": {
+          "totalScore": "0",
+          "maxScore": "0",
+          "accuracyRate": null
+        },
+        "before": {
+          "status": "SCORED_CORRECT",
+          "score": "1",
+          "maxScore": "1",
+          "questionType": "SINGLE",
+          "batchTotal": {
+            "totalScore": "1",
+            "maxScore": "1",
+            "accuracyRate": "1"
+          }
+        }
+      },
+      "proposed": {
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "answerTimingProof 为新增断言：docs/design/java-api-design.md 6.0 判定表“无当前态答案 → UNKNOWN”；重算后的新行反映撤销后的答案状态",
+      "rationale": "原 revokedAnswerRescoreArchivesOldDetailAndTotalThenWritesNoAnswer，重算前后状态、分值与汇总原样迁移"
+    },
+    {
+      "caseId": "case-07",
+      "scenario": "SCORE",
+      "description": "Q109 冻结快照 ChoiceLimit=3（当前题目已改为 1）仍为 UNKNOWN + UNSCORED",
+      "questionId": 109,
+      "internalQuestionId": 109,
+      "resultId": 1001,
+      "frozenChoiceLimit": 3,
+      "currentChoiceLimit": 1,
+      "frozenOptionIds": [
+        124,
+        125,
+        126
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        124
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 124,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "UNSCORED",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "answerTimingProof 为新增断言：docs/design/java-api-design.md 6.0 判定表“publishedAt 与 createdAt 都为 NULL → UNKNOWN”",
+      "rationale": "原 q109FrozenChoiceLimitThreeIsUnknownAndUnscored，状态与分值原样迁移"
+    },
+    {
+      "caseId": "case-08",
+      "scenario": "SCORE",
+      "description": "Q110 成功结果之外另有一个 FAILED 且无结果的任务：不生成明细但计入统计",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "extraJobsWithoutResult": [
+        {
+          "jobId": 10042,
+          "internalQuestionId": 109,
+          "jobStatus": "FAILED"
+        }
+      ],
+      "expected": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN",
+        "detailQuestionIds": [
+          110
+        ],
+        "typeStats": {
+          "questionCount": 2,
+          "jobCount": 2,
+          "detailCount": 1,
+          "noResultCount": 1
+        }
+      },
+      "proposed": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "原测试只断言明细行数、题目与统计，未断言该行状态；proposed 的状态与分值沿用 case-01 已核定口径（输入相同），answerTimingProof 依据 docs/design/java-api-design.md 6.0“publishedAt 与 createdAt 都为 NULL → UNKNOWN”",
+      "rationale": "原 failedJobWithoutResultCreatesNoDetailAndIsCountedInStats，明细行题目与统计原样迁移"
+    },
+    {
+      "caseId": "case-09",
+      "scenario": "SCORE",
+      "description": "预测选项 999 不在冻结快照选项 [201, 202] 中",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 999,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "SCORED_ZERO",
+        "score": "0",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "status": "SCORED_ZERO",
+        "score": "0",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "ScoringServiceImpl 类 Javadoc 的 SINGLE 三条件只要求官方答案 Id 落在冻结选项内，本例三条件均满足；SingleChoiceScoringStrategy 类 Javadoc“命中得 1 分，未命中得 0 分”，其 UNSCORED 条件为“预测或答案不是恰好一个选项、或答案 Id 不在冻结快照选项内”，未提及预测 Id 越界；answerTimingProof 依据 6.0“两个时间都为 NULL → UNKNOWN”",
+      "rationale": "按规则字面为未命中得 0 分且计入分母。规则文本未明确预测 Id 越界是否属于数据异常；若用户认为应为 UNSCORED（不计分母），需改 proposed 后再填 expected。注意：生产入站已拒收此输入——PredictionOutcomePersistenceService.applyResult 对不在冻结快照中的选项抛出 OPTION_NOT_IN_FROZEN_SNAPSHOT，结果不会入库；本例只验证评分器的防御行为，生产不可达。可选 SCORED_ZERO（按规则字面）或 UNSCORED（视为数据异常、不计分母）"
+    },
+    {
+      "caseId": "case-10",
+      "scenario": "SCORE",
+      "description": "官方答案含 2 个选项 Id [201, 202] 而冻结 ChoiceLimit=1",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201,
+        202
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "UNSCORED",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "status": "UNSCORED",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "ScoringServiceImpl 类 Javadoc 条件 2“官方答案恰有 1 个 Id”不满足 → “question_type = UNKNOWN、状态 UNSCORED…绝不当作 0 分”；ScoringEngine.ScoreOutcome Javadoc“未计分状态下 score 与 maxScore 均为 0”；answerTimingProof 依据 6.0“两个时间都为 NULL → UNKNOWN”",
+      "rationale": "答案形态与单选冻结配置矛盾时隔离为未评分，即使预测命中其中一个 Id 也不得分"
+    },
+    {
+      "caseId": "case-11",
+      "scenario": "SCORE",
+      "description": "题目状态为 CANCELLED，预测 201 本可命中",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "questionStatus": "CANCELLED",
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "CANCELLED",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "status": "CANCELLED",
+        "score": "0",
+        "maxScore": "0",
+        "questionType": "UNKNOWN",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "ScoreStatus.CANCELLED“题目已取消”且不计入总分；ScoringServiceImpl 类 Javadoc“迟到、无答案、取消的行同样不属于已核实的单选评分，题型也记为 UNKNOWN”；ScoringEngine.ScoreOutcome“未计分状态下 score 与 maxScore 均为 0”；answerTimingProof 依据 6.0“两个时间都为 NULL → UNKNOWN”",
+      "rationale": "取消优先于规则评分。注意 ScoringServiceImpl Javadoc 写明 CANCELLED 当前无产出方，本例以 question.status=CANCELLED 作为输入只验证防御性分支；取消信号的真实来源（当前题目状态还是冻结快照）规则未定义，需用户确认"
+    },
+    {
+      "caseId": "case-12",
+      "scenario": "RESCORE",
+      "description": "答案由 201 修订为 202 后显式重算：原 SCORED_CORRECT 变 SCORED_ZERO，旧版本先归档",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "previousOfficialAnswerIds": [
+        201
+      ],
+      "officialAnswerState": "REVISED",
+      "officialAnswerIds": [
+        202
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "rescoreReason": "官方答案修订",
+      "expected": {
+        "status": "SCORED_ZERO",
+        "score": "0",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN",
+        "batchTotal": {
+          "totalScore": "0",
+          "maxScore": "1",
+          "accuracyRate": "0"
+        },
+        "before": {
+          "status": "SCORED_CORRECT",
+          "score": "1",
+          "maxScore": "1",
+          "questionType": "SINGLE",
+          "batchTotal": {
+            "totalScore": "1",
+            "maxScore": "1",
+            "accuracyRate": "1"
+          }
+        }
+      },
+      "proposed": {
+        "status": "SCORED_ZERO",
+        "score": "0",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN",
+        "batchTotal": {
+          "totalScore": "0",
+          "maxScore": "1",
+          "accuracyRate": "0"
+        },
+        "before": {
+          "status": "SCORED_CORRECT",
+          "score": "1",
+          "maxScore": "1",
+          "questionType": "SINGLE",
+          "batchTotal": {
+            "totalScore": "1",
+            "maxScore": "1",
+            "accuracyRate": "1"
+          }
+        }
+      },
+      "proposalBasis": "ScoringService.rescoreBatch Javadoc“同一事务内先把旧明细与旧总分归档到历史表，再删除并写入新的一套评分”；SingleChoiceScoringStrategy 类 Javadoc“未命中得 0 分”；ScoreStatus.SCORED_ZERO“得 0 分且计入分母”；accuracyRate=0 沿用 batch-01 已核定口径（命中行数/计分行数）与 sql/005 accuracy_rate“准确率（0~1）”注释；answerTimingProof 依据 6.0“两个时间都为 NULL → UNKNOWN”",
+      "rationale": "修订后旧评分不得被静默覆盖；新答案 202 与预测 201 不一致，计分母不计分子。重算前的旧值与 case-01 / case-06 已核定口径一致"
+    },
+    {
+      "caseId": "case-13",
+      "scenario": "SCORE",
+      "description": "冻结快照 ChoiceLimit=1 而当前题目 ChoiceLimit 已变为 3，以冻结快照为准",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "currentChoiceLimit": 3,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": null,
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposed": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "UNKNOWN"
+      },
+      "proposalBasis": "ScoringServiceImpl 类 Javadoc 条件 1“任务关联快照中的 Config.ChoiceLimit == 1”与假设“仅冻结快照的 Config.ChoiceLimit == 1 可判为 SINGLE”；.omc/plans/full-chain-completion-plan.md“冻结输入：按 job 使用其快照…不得用最新题目”；answerTimingProof 依据 6.0“两个时间都为 NULL → UNKNOWN”",
+      "rationale": "与 case-07 方向相反的对照：当前题目配置变化不影响历史任务的题型判定"
+    },
+    {
+      "caseId": "case-14",
+      "scenario": "SCORE",
+      "description": "publishedAt 为 NULL 且 receivedAt 远早于答案行 createdAt，只能证明早于本系统观察",
+      "questionId": 110,
+      "internalQuestionId": 110,
+      "resultId": 1001,
+      "frozenChoiceLimit": 1,
+      "frozenOptionIds": [
+        201,
+        202
+      ],
+      "officialAnswerState": "PRESENT",
+      "officialAnswerIds": [
+        201
+      ],
+      "answerPublishedAt": null,
+      "answerFirstObservedAt": "2026-10-08T12:00:00Z",
+      "predictedOptionId": 201,
+      "receivedAt": "2026-10-08T10:59:59Z",
+      "jobStatus": "SUCCEEDED",
+      "expected": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "BEFORE_SYSTEM_OBSERVATION_ONLY"
+      },
+      "proposed": {
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE",
+        "answerTimingProof": "BEFORE_SYSTEM_OBSERVATION_ONLY"
+      },
+      "proposalBasis": "docs/design/java-api-design.md 6.0 判定表“publishedAt == null 且 receivedAt < truncate_ms(createdAt) - 1ms → BEFORE_SYSTEM_OBSERVATION_ONLY”，BEFORE_DECLARED_PUBLICATION 仅在 publishedAt != null 时可能；状态与分值依据 SingleChoiceScoringStrategy 类 Javadoc“命中得 1 分”，与 case-01 输入仅答案时间不同",
+      "rationale": "receivedAt 比 createdAt 早约 1 小时，远超 1ms 精度余量；证明字段不影响评分状态与得分"
+    },
+    {
+      "caseId": "case-15",
+      "scenario": "BATCH",
+      "description": "批次混合统计：CORRECT、ZERO、LATE、NO_ANSWER 各一行，另有一个 FAILED 无结果任务",
+      "rows": [
+        {
+          "questionId": 110,
+          "internalQuestionId": 110,
+          "resultId": 1001,
+          "frozenChoiceLimit": 1,
+          "frozenOptionIds": [
+            201,
+            202
+          ],
+          "officialAnswerState": "PRESENT",
+          "officialAnswerIds": [
+            201
+          ],
+          "answerPublishedAt": null,
+          "answerFirstObservedAt": null,
+          "predictedOptionId": 201,
+          "receivedAt": "2026-10-08T10:59:59Z",
+          "jobStatus": "SUCCEEDED"
+        },
+        {
+          "questionId": 110,
+          "internalQuestionId": 111,
+          "resultId": 1002,
+          "frozenChoiceLimit": 1,
+          "frozenOptionIds": [
+            201,
+            202
+          ],
+          "officialAnswerState": "PRESENT",
+          "officialAnswerIds": [
+            201
+          ],
+          "answerPublishedAt": null,
+          "answerFirstObservedAt": null,
+          "predictedOptionId": 202,
+          "receivedAt": "2026-10-08T10:59:59Z",
+          "jobStatus": "SUCCEEDED"
+        },
+        {
+          "questionId": 110,
+          "internalQuestionId": 112,
+          "resultId": 1003,
+          "frozenChoiceLimit": 1,
+          "frozenOptionIds": [
+            201,
+            202
+          ],
+          "officialAnswerState": "PRESENT",
+          "officialAnswerIds": [
+            201
+          ],
+          "answerPublishedAt": null,
+          "answerFirstObservedAt": null,
+          "predictedOptionId": 201,
+          "receivedAt": "2026-10-08T11:00:01Z",
+          "jobStatus": "SUCCEEDED"
+        },
+        {
+          "questionId": 110,
+          "internalQuestionId": 113,
+          "resultId": 1004,
+          "frozenChoiceLimit": 1,
+          "frozenOptionIds": [
+            201,
+            202
+          ],
+          "officialAnswerState": "ABSENT",
+          "officialAnswerIds": [],
+          "answerPublishedAt": null,
+          "answerFirstObservedAt": null,
+          "predictedOptionId": 201,
+          "receivedAt": "2026-10-08T10:59:59Z",
+          "jobStatus": "SUCCEEDED"
+        }
+      ],
+      "extraJobsWithoutResult": [
+        {
+          "jobId": 10042,
+          "internalQuestionId": 109,
+          "jobStatus": "FAILED"
+        }
+      ],
+      "expected": {
+        "detailRows": [
+          {
+            "internalQuestionId": 110,
+            "status": "SCORED_CORRECT",
+            "score": "1",
+            "maxScore": "1",
+            "questionType": "SINGLE"
+          },
+          {
+            "internalQuestionId": 111,
+            "status": "SCORED_ZERO",
+            "score": "0",
+            "maxScore": "1",
+            "questionType": "SINGLE"
+          },
+          {
+            "internalQuestionId": 112,
+            "status": "LATE",
+            "score": "0",
+            "maxScore": "0",
+            "questionType": "UNKNOWN"
+          },
+          {
+            "internalQuestionId": 113,
+            "status": "NO_ANSWER",
+            "score": "0",
+            "maxScore": "0",
+            "questionType": "UNKNOWN"
+          }
+        ],
+        "batchTotal": {
+          "totalScore": "1",
+          "maxScore": "2",
+          "accuracyRate": "0.5"
+        },
+        "typeStats": {
+          "questionCount": 5,
+          "jobCount": 5,
+          "detailCount": 4,
+          "noResultCount": 1
+        }
+      },
+      "proposed": {
+        "detailRows": [
+          {
+            "internalQuestionId": 110,
+            "status": "SCORED_CORRECT",
+            "score": "1",
+            "maxScore": "1",
+            "questionType": "SINGLE"
+          },
+          {
+            "internalQuestionId": 111,
+            "status": "SCORED_ZERO",
+            "score": "0",
+            "maxScore": "1",
+            "questionType": "SINGLE"
+          },
+          {
+            "internalQuestionId": 112,
+            "status": "LATE",
+            "score": "0",
+            "maxScore": "0",
+            "questionType": "UNKNOWN"
+          },
+          {
+            "internalQuestionId": 113,
+            "status": "NO_ANSWER",
+            "score": "0",
+            "maxScore": "0",
+            "questionType": "UNKNOWN"
+          }
+        ],
+        "batchTotal": {
+          "totalScore": "1",
+          "maxScore": "2",
+          "accuracyRate": "0.5"
+        },
+        "typeStats": {
+          "questionCount": 5,
+          "jobCount": 5,
+          "detailCount": 4,
+          "noResultCount": 1
+        }
+      },
+      "proposalBasis": "ScoringService.scoreBatch Javadoc“迟到结果标记 LATE、未公布答案标记 NO_ANSWER，二者均不计入总分与满分”；ScoreStatus“只有 SCORED_CORRECT 与 SCORED_ZERO 计入批次总分”；accuracyRate 沿用 batch-01 已核定口径；统计字段语义沿用 case-08 已核定口径（无结果任务不生成明细但计入 jobCount/noResultCount）",
+      "rationale": "现有汇总断言只覆盖 CORRECT+ZERO（batch-01）与无结果任务（case-08）的单独场景，未覆盖四种状态与无结果任务同批混合"
+    }
+  ],
+  "batchExpected": {
+    "caseId": "batch-01",
+    "description": "两个独立内部题目复用 Q110 样例：一行命中、一行未命中",
+    "rows": [
+      {
+        "questionId": 110,
+        "internalQuestionId": 110,
+        "resultId": 1001,
+        "frozenChoiceLimit": 1,
+        "frozenOptionIds": [
+          201,
+          202
+        ],
+        "officialAnswerState": "PRESENT",
+        "officialAnswerIds": [
+          201
+        ],
+        "answerPublishedAt": null,
+        "answerFirstObservedAt": null,
+        "predictedOptionId": 201,
+        "receivedAt": "2026-10-08T10:59:59Z",
+        "jobStatus": "SUCCEEDED"
+      },
+      {
+        "questionId": 110,
+        "internalQuestionId": 111,
+        "resultId": 1002,
+        "frozenChoiceLimit": 1,
+        "frozenOptionIds": [
+          201,
+          202
+        ],
+        "officialAnswerState": "PRESENT",
+        "officialAnswerIds": [
+          201
+        ],
+        "answerPublishedAt": null,
+        "answerFirstObservedAt": null,
+        "predictedOptionId": 202,
+        "receivedAt": "2026-10-08T10:59:59Z",
+        "jobStatus": "SUCCEEDED"
+      }
+    ],
+    "detailRows": [
+      {
+        "internalQuestionId": 110,
+        "status": "SCORED_CORRECT",
+        "score": "1",
+        "maxScore": "1",
+        "questionType": "SINGLE"
+      },
+      {
+        "internalQuestionId": 111,
+        "status": "SCORED_ZERO",
+        "score": "0",
+        "maxScore": "1",
+        "questionType": "SINGLE"
+      }
+    ],
+    "totalScore": "1",
+    "maxScore": "2",
+    "accuracyRate": "0.5",
+    "rationale": "原 batchContainingOnlyCorrectAndWrongCasesTotalsOneOfTwoWithHalfAccuracy，明细与汇总原样迁移"
+  },
+  "approval": {
+    "approvedBy": "lbz",
+    "approvedAt": "2026-10-08",
+    "method": "逐例对照规则核定候选值",
+    "sampleSha256": "857d0ca0b5c078573a068a3a64656b97624cbe423bbe0e5be358301c6efd147c",
+    "ruleVersion": "SINGLE_BINARY_V1",
+    "casesSha256": "6eaa72b1ac7e8766750068713811af64f1892385bf93b63f4985e4eea3d88596"
+  }
+}

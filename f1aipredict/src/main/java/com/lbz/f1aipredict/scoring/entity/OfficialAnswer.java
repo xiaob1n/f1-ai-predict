@@ -48,7 +48,12 @@ public class OfficialAnswer {
     @TableField("synced_at")
     private Instant syncedAt;
 
-    /** 本系统首次观察到该题答案的时间(UTC)，仅首次插入写入，后续修订不变；不等于官方发布时间。 */
+    /**
+     * 本系统首次观察到当前答案行的时间(UTC)：答案同步事务在拉取 Feed、写入原文、取得行锁之后读取的 Java 时钟，
+     * 晚于实际拉取时刻且差值没有上界；Feed 修订内容不改变它。Feed 撤销会删除该行，重新公布时插入新行并重置；
+     * 更早的值见 official_answer_history.created_at。不等于官方发布时间，也不是系统任何组件首次拿到答案的时间
+     * （定时题目同步可能已把含答案的同端点原文写入 feed_raw_payload）。
+     */
     @TableField("created_at")
     private Instant createdAt;
 

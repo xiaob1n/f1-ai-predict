@@ -22,9 +22,19 @@
 .opencode/
 
 # 文档统一归档在 docs 下，仅保留本地副本
-/docs/
+# 例外：Java API 设计文档承载 D8 时间边界对外说明，纳入版本控制
+/docs/*
+!/docs/design/
+/docs/design/*
+!/docs/design/java-api-design.md
 
 # 测试代码、样例和产物仅保留本地副本
+# 例外：D5 单选金标准 fixture 承载人工核定记录，纳入版本控制
 /tests/
 /python-agent-worker/tests/
-/f1aipredict/src/test/
+/f1aipredict/src/test/*
+!/f1aipredict/src/test/resources/
+/f1aipredict/src/test/resources/*
+!/f1aipredict/src/test/resources/scoring/
+/f1aipredict/src/test/resources/scoring/*
+!/f1aipredict/src/test/resources/scoring/single-binary-v1-gold-standard.json

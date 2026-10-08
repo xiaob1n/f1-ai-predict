@@ -31,7 +31,9 @@ import java.util.Objects;
  * <ul>
  *   <li>{@code published_at}：仅表示官方发布时间。Feed 未提供时为 NULL（UNKNOWN），
  *       绝不用本系统首次观察或同步时间推导；</li>
- *   <li>{@code created_at}：本系统首次观察到该题答案的时间，仅首次插入时写入，修订不改；</li>
+ *   <li>{@code created_at}：本系统首次观察到当前答案行的时间，取自本事务写入原文并取得行锁之后的 {@code Instant.now()}，
+ *       晚于实际拉取 Feed 的时刻且差值没有上界；Feed 修订不改。Feed 撤销会删除该行，重新公布时插入新行并重置；
+ *       更早的值见 {@code official_answer_history.created_at}；</li>
  *   <li>{@code synced_at}：最近一次写入当前态内容的时间（Feed 内容变化或人工修订）；
  *       内容哈希未变的重复同步不刷新。</li>
  * </ul>

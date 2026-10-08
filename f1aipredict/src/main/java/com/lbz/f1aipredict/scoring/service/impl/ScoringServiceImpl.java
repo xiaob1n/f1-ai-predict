@@ -40,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -77,6 +78,17 @@ import java.util.stream.Collectors;
  *   <li>{@code prediction_outcome_receipt.received_at} 是结果首次接收时间；持有批次行锁后以该持久化接收时间判定迟到，
  *       不依赖结果行创建时间，避免数据库精度转换影响边界判断。</li>
  *   <li>{@code CANCELLED} 当前无产出方，该分支仅保留防御性处理，不代表取消流程已落地。</li>
+ *   <li>detail_json 的 {@code answerTimingProof} 只陈述接收时间与答案时间的先后，不影响评分状态与得分，
+ *       等级定义见 {@code docs/design/java-api-design.md}「6.0 时间边界与证明等级」：
+ *       非 NULL 的 {@code published_at} 目前只可能来自人工修订，只算人工声明，不是系统证明；
+ *       {@code created_at} 是本系统首次观察到<b>当前答案行</b>的时间，答案撤销会删除该行、重新公布会插入新行并重置它。
+ *       它是答案同步事务在拉取 Feed、写入原文、取得行锁之后读取的 Java 时钟，晚于实际拉取时刻且差值没有上界；
+ *       定时题目同步读取同一端点，可能更早已把含答案的原文写入 {@code feed_raw_payload}（source_type=QUESTIONS），
+ *       因此 {@code BEFORE_SYSTEM_OBSERVATION_ONLY} 只说明早于答案同步路径写入当前答案行，不是系统任何组件首次拿到答案的时间。
+ *       {@code created_at} 与 {@code received_at} 均由 Java {@code Instant.now()} 写入（同一时钟来源，
+ *       多实例部署仍依赖各实例 NTP 同步）；但 {@code created_at} 以 DATETIME(3) 存储且写入前未截断，
+ *       MySQL 舍入可能使其比这次时钟读数晚至多 0.5ms（余量只覆盖舍入，不覆盖拉取到读时钟之间的延迟），因此 {@code BEFORE_SYSTEM_OBSERVATION_ONLY}
+ *       要求接收时间早于截断到毫秒后的观察时间再减 1ms，落在该精度带内的记为 UNKNOWN。</li>
  * </ul>
  */
 @Slf4j
@@ -88,6 +100,11 @@ public class ScoringServiceImpl implements ScoringService {
     private static final String QUESTION_STATUS_CANCELLED = "CANCELLED";
     /** 与 sql/011 中 revision_reason 列宽一致。 */
     private static final int MAX_REASON_LENGTH = 64;
+    /**
+     * 系统观察时间比较的精度余量：official_answer.created_at 为 DATETIME(3) 且写入前未截断，
+     * MySQL 舍入最多使其晚 0.5ms；received_at 为 DATETIME(6)，舍入最多 0.5µs。取 1ms 足以覆盖两者之和。
+     */
+    private static final Duration OBSERVATION_PRECISION_MARGIN = Duration.ofMillis(1);
 
     private final PredictionBatchMapper batchMapper;
     private final PredictionJobMapper jobMapper;
@@ -357,7 +374,13 @@ public class ScoringServiceImpl implements ScoringService {
         return detail;
     }
 
-    /** 保存评分上下文，使逐题得分可以对照答案版本（content_hash）与接收时间复核。 */
+    /**
+     * 保存评分上下文，使逐题得分可以对照答案版本（content_hash）与接收时间复核。
+     * <p>
+     * 时间证明字段：答案存在时 {@code answerFirstObservedAt}（本系统首次观察到当前答案行的时间）与
+     * {@code answerPublishedAt}（人工声明的发布时间）两个键必定存在，值缺失时写显式 JSON null，
+     * 以区分“未知”与“未记录”；{@code answerTimingProof} 每行必写，规则见 {@link #answerTimingProof}。
+     */
     private String detailJson(PredictionBatch batch, Long snapshotId, Instant receivedAt, OfficialAnswer answer,
                               ScoreOutcome outcome) {
         ObjectNode node = objectMapper.createObjectNode();
@@ -380,6 +403,8 @@ public class ScoringServiceImpl implements ScoringService {
             if (answer.getContentHash() != null) {
                 node.put("answerContentHash", answer.getContentHash());
             }
+            putInstantOrNull(node, "answerFirstObservedAt", answer.getCreatedAt());
+            putInstantOrNull(node, "answerPublishedAt", answer.getPublishedAt());
         }
         if (receivedAt != null) {
             node.put("receivedAt", receivedAt.toString());
@@ -387,7 +412,58 @@ public class ScoringServiceImpl implements ScoringService {
         if (batch.getPredictionDeadline() != null) {
             node.put("predictionDeadline", batch.getPredictionDeadline().toString());
         }
+        node.put("answerTimingProof", answerTimingProof(receivedAt, answer).name());
         return node.toString();
+    }
+
+    /** 键总是写入；值为 null 时写显式 JSON null，而不是省略该键。 */
+    private static void putInstantOrNull(ObjectNode node, String field, Instant value) {
+        if (value == null) {
+            node.putNull(field);
+        } else {
+            node.put(field, value.toString());
+        }
+    }
+
+    /**
+     * 计算结果接收时间相对官方答案的时间证明等级，只做陈述，不参与评分。
+     * <ol>
+     *   <li>无答案、无接收时间，或发布时间与观察时间都为 NULL：{@code UNKNOWN}；</li>
+     *   <li>{@code published_at} 非 NULL（目前只可能来自人工修订，只算人工声明）：
+     *       接收早于它为 {@code BEFORE_DECLARED_PUBLICATION}，否则为 {@code NOT_BEFORE_DECLARED_PUBLICATION}；
+     *       声明值按存储原值比较，不加精度余量；</li>
+     *   <li>{@code published_at} 为 NULL 时退回本系统观察时间 {@code created_at}：
+     *       接收不早于它为 {@code NOT_BEFORE_SYSTEM_OBSERVATION}；
+     *       接收早于“截断到毫秒的观察时间减 {@link #OBSERVATION_PRECISION_MARGIN}”才是
+     *       {@code BEFORE_SYSTEM_OBSERVATION_ONLY}，仅证明早于本系统观察，不证明早于官方发布；
+     *       落在精度带内无法证明先后，记 {@code UNKNOWN}。</li>
+     * </ol>
+     * 精度余量的理由：created_at 由 Java {@code Instant.now()} 未截断写入 DATETIME(3)，MySQL 舍入可能进位到下一毫秒，
+     * 使存储值晚于这次时钟读数至多 0.5ms（该读数本身晚于实际拉取 Feed 的时刻，差值没有上界，余量不覆盖这段延迟）；received_at 为 DATETIME(6)，舍入至多 0.5µs。
+     * 两者均为 Java 时钟，同一实例内可比；多实例部署依赖各实例 NTP 同步。
+     * 撤销后重新公布的答案是新行，created_at 随之重置，因此观察时间指“当前答案行”的首次观察。
+     */
+    private static AnswerTimingProof answerTimingProof(Instant receivedAt, OfficialAnswer answer) {
+        if (answer == null || receivedAt == null) {
+            return AnswerTimingProof.UNKNOWN;
+        }
+        Instant publishedAt = answer.getPublishedAt();
+        if (publishedAt != null) {
+            return receivedAt.isBefore(publishedAt)
+                    ? AnswerTimingProof.BEFORE_DECLARED_PUBLICATION
+                    : AnswerTimingProof.NOT_BEFORE_DECLARED_PUBLICATION;
+        }
+        Instant observedAt = answer.getCreatedAt();
+        if (observedAt == null) {
+            return AnswerTimingProof.UNKNOWN;
+        }
+        if (!receivedAt.isBefore(observedAt)) {
+            return AnswerTimingProof.NOT_BEFORE_SYSTEM_OBSERVATION;
+        }
+        Instant provablyObservedAfter = observedAt.truncatedTo(ChronoUnit.MILLIS).minus(OBSERVATION_PRECISION_MARGIN);
+        return receivedAt.isBefore(provablyObservedAfter)
+                ? AnswerTimingProof.BEFORE_SYSTEM_OBSERVATION_ONLY
+                : AnswerTimingProof.UNKNOWN;
     }
 
     /**
@@ -461,5 +537,22 @@ public class ScoringServiceImpl implements ScoringService {
 
     /** 一整套待写入的明细与总分。 */
     private record ScoredBatch(List<ScoringDetail> details, BatchTotalScore total) {
+    }
+
+    /**
+     * detail_json 中 answerTimingProof 的取值（D8）。
+     * 名称刻意区分“人工声明的发布时间”与“本系统观察时间”，不存在暗示系统证明早于官方发布的等级。
+     */
+    private enum AnswerTimingProof {
+        /** 缺少答案、接收时间或任何可比较的答案时间，或落在观察时间精度带内。 */
+        UNKNOWN,
+        /** 接收早于人工声明的发布时间。 */
+        BEFORE_DECLARED_PUBLICATION,
+        /** 接收不早于人工声明的发布时间。 */
+        NOT_BEFORE_DECLARED_PUBLICATION,
+        /** 发布时间未知，仅能证明接收早于本系统首次观察到当前答案行。 */
+        BEFORE_SYSTEM_OBSERVATION_ONLY,
+        /** 发布时间未知，接收不早于本系统首次观察到当前答案行。 */
+        NOT_BEFORE_SYSTEM_OBSERVATION
     }
 }
