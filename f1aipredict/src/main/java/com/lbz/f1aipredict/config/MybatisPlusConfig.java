@@ -10,7 +10,8 @@ import org.springframework.context.annotation.Configuration;
 
 /**
  * MyBatis-Plus 配置类，统一注册 Mapper 扫描和数据库操作插件。
- * 扫描 question、sync、season、prediction 领域的 Mapper 包及预测 outbox 包。
+ * 扫描 question、sync、season、prediction、scoring 领域的 Mapper 包及预测 outbox 包。
+ * 显式 {@code @MapperScan} 会关闭 {@code @Mapper} 的自动扫描，新增 Mapper 包必须登记在此处。
  * <p>
  * {@code lazyInitialization} 绑定已有 {@code spring.main.lazy-initialization}：
  * 生产缺省 false，Mapper 仍急切创建，行为不变；无 DataSource 的测试已设 true，
@@ -23,7 +24,8 @@ import org.springframework.context.annotation.Configuration;
                 "com.lbz.f1aipredict.sync.mapper",
                 "com.lbz.f1aipredict.season.mapper",
                 "com.lbz.f1aipredict.prediction.mapper",
-                "com.lbz.f1aipredict.prediction.outbox"
+                "com.lbz.f1aipredict.prediction.outbox",
+                "com.lbz.f1aipredict.scoring.mapper"
         },
         lazyInitialization = "${spring.main.lazy-initialization:false}"
 )
