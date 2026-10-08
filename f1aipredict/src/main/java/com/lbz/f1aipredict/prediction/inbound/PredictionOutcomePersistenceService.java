@@ -43,7 +43,15 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
-/** 在单个短事务内验证冻结任务并提交终态、接收凭证及批次聚合。 */
+/**
+ * 在单个短事务内验证冻结任务并提交终态、接收凭证及批次聚合。
+ * <p>
+ * 锁顺序固定为批次→任务：先取得批次行锁，再取服务端接收时间，
+ * 与截止锁定的批次条件更新互斥，防止准时结果在锁定及首次评分之后才提交。
+ * 准时结果必在锁定提交前提交；锁定后取得批次锁的结果接收时间严格晚于截止，
+ * 因而评分为 LATE，仅保留审计，不计入有效总分。同批次的结果和失败受理因此串行。
+ * 此保证依赖单一可信且不回拨的服务端时钟，多实例部署须以 NTP 同步时钟。
+ */
 @Service
 @Slf4j
 public class PredictionOutcomePersistenceService {
@@ -89,6 +97,7 @@ public class PredictionOutcomePersistenceService {
     /** 幂等写入 RESULT；运行于 READ COMMITTED，避免持有批次锁后读取旧快照聚合。 */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public OutcomeApplyResult applyResult(Result result, String payloadSha256) {
+        PredictionBatch batch = lockBatch(result.getBatchId());
         PredictionJob job = lockAndValidateJob(result.getPredictionJobId(), result.getBatchId(), result.getQuestionId(),
                 result.getQuestionSnapshotId(), result.getTraceId(), result.getSourceDataCutoff(), result.getModelVersion(),
                 result.getPromptVersion(), result.getFeatureVersion(), result.getEmbeddingVersion(),
@@ -145,13 +154,14 @@ public class PredictionOutcomePersistenceService {
         }
         persistReceipt(job, result.getMessageId(), "RESULT", payloadSha256, result.getTraceId(), now);
         moveToTerminal(job, PredictionJobStatus.SUCCEEDED, result.getGeneratedAt());
-        aggregateBatch(job.getBatchId());
+        aggregateBatch(batch);
         return OutcomeApplyResult.APPLIED;
     }
 
     /** 幂等写入 FAILURE；Python attempt 只进入失败详情，不修改 Java retryCount。 */
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public OutcomeApplyResult applyFailure(Failure failure, String payloadSha256) {
+        PredictionBatch batch = lockBatch(failure.getBatchId());
         PredictionJob job = lockAndValidateJob(failure.getPredictionJobId(), failure.getBatchId(),
                 failure.getQuestionId(), failure.getQuestionSnapshotId(), failure.getTraceId(), failure.getSourceDataCutoff(),
                 failure.getModelVersion(), failure.getPromptVersion(), failure.getFeatureVersion(),
@@ -178,7 +188,7 @@ public class PredictionOutcomePersistenceService {
         requireInserted(failureMapper.insert(persistedFailure), "FAILURE_INSERT_FAILED");
         persistReceipt(job, failure.getMessageId(), "FAILURE", payloadSha256, failure.getTraceId(), now);
         moveToTerminal(job, PredictionJobStatus.FAILED, failure.getGeneratedAt());
-        aggregateBatch(job.getBatchId());
+        aggregateBatch(batch);
         return OutcomeApplyResult.APPLIED;
     }
 
@@ -339,9 +349,16 @@ public class PredictionOutcomePersistenceService {
         }
     }
 
-    private void aggregateBatch(Long batchId) {
+    /** 事务首先锁定消息指向的批次，批次缺失时不再触碰任务。 */
+    private PredictionBatch lockBatch(Long batchId) {
         PredictionBatch batch = batchMapper.selectByIdForUpdate(batchId);
         if (batch == null) throw rejected("PREDICTION_BATCH_NOT_FOUND");
+        return batch;
+    }
+
+    /** 复用受理开始时持有的批次锁，避免任务加锁后再获取其他批次锁。 */
+    private void aggregateBatch(PredictionBatch batch) {
+        Long batchId = batch.getId();
         List<PredictionJob> jobs = jobMapper.selectAllByBatchId(batchId);
         if (batch.getQuestionCount() == null || batch.getQuestionCount() != jobs.size()) {
             log.warn("预测批次题目数与任务数不一致: batchId={}, questionCount={}, jobCount={}",

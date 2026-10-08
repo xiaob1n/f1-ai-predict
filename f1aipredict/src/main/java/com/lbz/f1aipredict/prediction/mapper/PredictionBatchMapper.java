@@ -27,14 +27,14 @@ public interface PredictionBatchMapper extends BaseMapper<PredictionBatch> {
     @Select("SELECT MAX(batch_no) FROM prediction_batch WHERE round_id = #{roundId}")
     Integer selectMaxBatchNo(@Param("roundId") Long roundId);
 
-    /** 锁定批次行，与任务锁形成 job→batch 的固定锁顺序。 */
+    /** 先锁批次再锁任务，串行化同批次受理与截止锁定，避免准时结果提交晚于首次评分。 */
     @Select("SELECT * FROM prediction_batch WHERE id = #{batchId} FOR UPDATE")
     PredictionBatch selectByIdForUpdate(@Param("batchId") Long batchId);
 
-    /** 只有未锁定且版本匹配时才写入第一次锁定时间，防止重试或并发覆盖。 */
+    /** 只有严格晚于截止、未锁定且版本匹配时才写入第一次锁定时间，防止重试或并发覆盖。 */
     @Update("UPDATE prediction_batch SET locked_at = #{lockTime}, lock_version = lock_version + 1, "
             + "updated_at = UTC_TIMESTAMP(3) WHERE id = #{batchId} AND locked_at IS NULL "
-            + "AND lock_version = #{expectedVersion} AND prediction_deadline <= #{lockTime}")
+            + "AND lock_version = #{expectedVersion} AND prediction_deadline < #{lockTime}")
     int lockIfUnchanged(@Param("batchId") Long batchId, @Param("expectedVersion") Integer expectedVersion,
                         @Param("lockTime") Instant lockTime);
 

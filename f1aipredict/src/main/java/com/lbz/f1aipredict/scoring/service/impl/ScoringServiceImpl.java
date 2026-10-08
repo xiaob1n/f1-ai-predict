@@ -67,6 +67,9 @@ import java.util.stream.Collectors;
  * </ol>
  * 任一条件不满足，该行为 {@code question_type = 'UNKNOWN'}、状态 UNSCORED 且在 detail_json 写明原因，
  * 绝不当作 0 分；迟到、无答案、取消的行同样不属于已核实的单选评分，题型也记为 UNKNOWN。
+ * 受理遵守批次→任务的锁顺序并在批次锁后取接收时间，使准时结果必在截止锁定提交前提交；
+ * 锁定后取得批次锁的结果接收时间严格晚于截止，因此为 LATE 且仅作审计。
+ * 同批次受理因此串行；该保证依赖单一可信且不回拨的服务端时钟，多实例须以 NTP 同步。
  * 显式假设如下：
  * <ul>
  *   <li>题型映射尚未落地，仅冻结快照的 {@code Config.ChoiceLimit == 1} 可判为 SINGLE，其他值为 UNKNOWN + UNSCORED，
@@ -126,7 +129,7 @@ public class ScoringServiceImpl implements ScoringService {
 
     /**
      * 运行于 READ COMMITTED：先锁定批次行，再读取已提交的完整结果集合，
-     * 与结果入库时同样锁批次行的聚合逻辑互斥，也串行化并发评分，避免读到入库一半的结果或产生两套评分。
+     * 与受理事务开始时持有的批次行锁互斥，也串行化并发评分，避免读到入库一半的结果或产生两套评分。
      * 任何一步失败整个事务回滚，不会留下只有明细没有总分的中间状态。
      */
     @Override

@@ -5,7 +5,7 @@ import java.time.Instant;
 /** 预测批次业务截止锁定与迟到判断；数据可见性截止不参与时间判断。 */
 public interface PredictionLockService {
 
-    /** 在业务截止时按服务器可信时钟锁定批次；重复调用不改变首次锁定时间。 */
+    /** 严格晚于业务截止时按服务器可信时钟锁定批次；重复调用不改变首次锁定时间。 */
     LockResult lockBatch(Long batchId, Instant lockTime);
 
     /** 仅查询实际锁定状态，不将业务截止自动视作已持久锁定。 */

@@ -10,7 +10,14 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Objects;
 
-/** 借助数据库条件更新保证同一批次只会留下首次锁定时刻。 */
+/**
+ * 借助数据库条件更新保证同一批次只会留下首次锁定时刻，且只能严格晚于预测截止锁定。
+ * <p>
+ * 受理事务按批次→任务顺序加锁，并在取得批次锁后取接收时间；本服务的条件更新也锁批次行，
+ * 使准时结果必在锁定提交前提交。锁定后取得批次锁的结果接收时间严格晚于截止，
+ * 因而为 LATE 并仅作审计；代价是同批次受理串行。
+ * 上述保证依赖单一可信且不回拨的服务端时钟，多实例部署须以 NTP 同步时钟。
+ */
 @Service
 public class PredictionLockServiceImpl implements PredictionLockService {
 
@@ -31,7 +38,7 @@ public class PredictionLockServiceImpl implements PredictionLockService {
             return new LockResult(false, batch.getLockedAt(), batch.getPredictionDeadline());
         }
         Instant deadline = requireDeadline(batch);
-        if (lockTime.isBefore(deadline)) {
+        if (!lockTime.isAfter(deadline)) {
             throw new InvalidRequestException("Prediction deadline has not been reached");
         }
         if (batch.getLockVersion() == null) {
