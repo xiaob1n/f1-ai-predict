@@ -120,16 +120,16 @@ class Settings(BaseSettings):
     dead_letter_routing_key: str = "prediction.dead.v2"
     result_exchange: str = "f1.prediction.result.v2"
     result_queue: str = "f1.prediction.result.v2"
-    result_routing_key: str = "prediction.result.v2"
+    result_routing_key: str = "f1.prediction.result.v2"
     result_dead_letter_exchange: str = "f1.prediction.result.dead.v2"
     result_dead_letter_queue: str = "f1.prediction.result.dead.v2"
-    result_dead_letter_routing_key: str = "prediction.result.dead.v2"
+    result_dead_letter_routing_key: str = "f1.prediction.result.dead.v2"
     failure_exchange: str = "f1.prediction.failure.v2"
     failure_queue: str = "f1.prediction.failure.v2"
-    failure_routing_key: str = "prediction.failure.v2"
+    failure_routing_key: str = "f1.prediction.failure.v2"
     failure_dead_letter_exchange: str = "f1.prediction.failure.dead.v2"
     failure_dead_letter_queue: str = "f1.prediction.failure.dead.v2"
-    failure_dead_letter_routing_key: str = "prediction.failure.dead.v2"
+    failure_dead_letter_routing_key: str = "f1.prediction.failure.dead.v2"
     consumer_prefetch: int = Field(default=10, ge=1, le=100)
     consumer_max_message_bytes: int = Field(default=262144, ge=1024)
     result_max_message_bytes: int = Field(default=262144, ge=1024)
