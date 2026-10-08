@@ -46,7 +46,7 @@
 ## DTO：JSON 契约
 
 - 5 个 DTO：`QuestionQuery`、`QuestionDto`、`QuestionDetailDto`、`QuestionSnapshotDto`、`QuestionOptionDto`，均为 `@Data + @Builder + 全参/无参构造`。
-- 每个字段显式 `@JsonProperty("camelCase 名")`，注解值必须与 Java 字段名一致（反射契约测试强制）。
+- 仅 REST JSON response DTO 使用 `snake_case` 外部字段名；Java 字段保持 `camelCase`，每个字段显式 `@JsonProperty("snake_case 名")`，注解值控制 JSON 反序列化与序列化。`QuestionQuery` 是 `@ModelAttribute` 查询 DTO，其字段和 `@JsonProperty` 继续使用既有 camelCase 查询名。
 - `options` 一律 `List`，默认初始化为空列表，未附带时序列化 `[]` 而非 null；可空字段序列化为显式 null。
 - 不回传实体、不回传 `rawJson` 本体；快照 DTO 仅暴露 `hasRawJson` 布尔（由实体 `rawJson != null` 推导）。
 - `questionType` 首版固定 `UNKNOWN`（DTO 字段默认值），Feed 侧类型映射未落地，不得自行猜测填值。

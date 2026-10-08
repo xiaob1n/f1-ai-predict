@@ -11,7 +11,7 @@ import java.time.LocalDate;
 /**
  * 赛季对外 DTO。
  * <p>
- * 字段与查询接口展示形态一一对应，JSON 键为 camelCase。
+ * 字段与查询接口展示形态一一对应，REST JSON 键为 snake_case（Java 字段保持 camelCase）。
  * 不暴露 createdAt/updatedAt 等审计列，也不包含预测/评分字段。
  */
 @Data
@@ -37,10 +37,10 @@ public class SeasonDto {
     private String status;
 
     /** 赛季开始日期（UTC，DATE → LocalDate） */
-    @JsonProperty("startDate")
+    @JsonProperty("start_date")
     private LocalDate startDate;
 
     /** 赛季结束日期（UTC，DATE → LocalDate） */
-    @JsonProperty("endDate")
+    @JsonProperty("end_date")
     private LocalDate endDate;
 }

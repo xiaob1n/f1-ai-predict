@@ -10,7 +10,8 @@ import lombok.NoArgsConstructor;
  * 题目列表查询参数 DTO。
  * <p>
  * 用于 GET /api/v1/rounds/{roundId}/questions 的查询条件绑定。
- * 字段均显式声明 camelCase {@link JsonProperty} 以锁定 JSON 序列化名称。
+ * 本类绑定 query string 而非 JSON 请求体，查询参数名保持 camelCase（如 {@code gamedayId}），
+ * 故 {@link JsonProperty} 值与字段名/查询参数名一致，不随 REST JSON snake_case 调整。
  * includeOptions 默认 true（未显式传 false 时附带回选项列表）。
  */
 @Data

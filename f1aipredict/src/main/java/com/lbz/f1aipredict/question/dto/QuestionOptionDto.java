@@ -11,7 +11,7 @@ import java.math.BigDecimal;
 /**
  * 题目选项 DTO。
  * <p>
- * 对应问题快照下的单个选项，字段与 json 响应示例一致（camelCase）。
+ * 对应问题快照下的单个选项，REST JSON 键为 snake_case，Java 字段保持 camelCase。
  * 所有字段显式声明 {@link JsonProperty} 以锁定 JSON 序列化名称。
  */
 @Data
@@ -21,15 +21,15 @@ import java.math.BigDecimal;
 public class QuestionOptionDto {
 
     /** 选项在 Feed 中的唯一标识 ID */
-    @JsonProperty("optionId")
+    @JsonProperty("option_id")
     private Integer optionId;
 
     /** 选项序号，用于展示顺序排序 */
-    @JsonProperty("optionNo")
+    @JsonProperty("option_no")
     private Integer optionNo;
 
     /** 选项文本 */
-    @JsonProperty("optionText")
+    @JsonProperty("option_text")
     private String optionText;
 
     /** 选项分值 */

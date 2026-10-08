@@ -11,7 +11,8 @@ import lombok.NoArgsConstructor;
  * <p>
  * 绑定 {@code GET /api/v1/admin/sync/records} 的 query string。
  * page 为 0-based；size 默认 20、最小 1、最大 100。
- * JSON 键使用 camelCase。
+ * 本类绑定 query string 而非 JSON 请求体，查询参数名保持 camelCase（如 {@code sourceType}），
+ * 故 {@link JsonProperty} 值与字段名/查询参数名一致，不随 REST JSON snake_case 调整。
  */
 @Data
 @Builder

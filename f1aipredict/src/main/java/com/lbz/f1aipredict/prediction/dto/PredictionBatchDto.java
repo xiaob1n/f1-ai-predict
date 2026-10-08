@@ -14,6 +14,7 @@ import java.util.List;
  * <p>
  * 本阶段创建成功只表示已落库，状态固定由调用方填 {@code PENDING}，
  * 不表示 RabbitMQ 已发布。jobIds 为公开业务键，默认空列表避免序列化为 null。
+ * REST JSON 键为 snake_case（如 {@code batch_id}），Java 字段保持 camelCase。
  */
 @Data
 @Builder
@@ -22,11 +23,11 @@ import java.util.List;
 public class PredictionBatchDto {
 
     /** 批次主键 */
-    @JsonProperty("batchId")
+    @JsonProperty("batch_id")
     private Long batchId;
 
     /** 所属分站 ID */
-    @JsonProperty("roundId")
+    @JsonProperty("round_id")
     private Long roundId;
 
     /** 批次状态，JSON 值与 SQL 004 注释一致，如 PENDING */
@@ -34,11 +35,11 @@ public class PredictionBatchDto {
     private String status;
 
     /** 批次内题目/任务总数 */
-    @JsonProperty("questionCount")
+    @JsonProperty("question_count")
     private Integer questionCount;
 
     /** 已创建任务的公开业务键列表，默认空列表 */
-    @JsonProperty("jobIds")
+    @JsonProperty("job_ids")
     @Builder.Default
     private List<String> jobIds = new ArrayList<>();
 }

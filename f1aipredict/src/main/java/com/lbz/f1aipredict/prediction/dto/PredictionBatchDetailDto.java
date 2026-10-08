@@ -12,7 +12,7 @@ import java.time.Instant;
  * 预测批次详情 DTO。
  * <p>
  * 时间字段均为 UTC {@link Instant}。不暴露 Entity、内部任务主键、messageId 或 lastError。
- * 任务状态计数见 {@link PredictionJobStatusCountsDto}。
+ * 任务状态计数见 {@link PredictionJobStatusCountsDto}。REST JSON 键为 snake_case。
  */
 @Data
 @Builder
@@ -21,15 +21,15 @@ import java.time.Instant;
 public class PredictionBatchDetailDto {
 
     /** 批次主键 */
-    @JsonProperty("batchId")
+    @JsonProperty("batch_id")
     private Long batchId;
 
     /** 所属分站 ID */
-    @JsonProperty("roundId")
+    @JsonProperty("round_id")
     private Long roundId;
 
     /** 同分站内批次序号 */
-    @JsonProperty("batchNo")
+    @JsonProperty("batch_no")
     private Integer batchNo;
 
     /** 批次状态，JSON 值与 SQL 004 注释一致 */
@@ -37,22 +37,22 @@ public class PredictionBatchDetailDto {
     private String status;
 
     /** 批次表上的题目总数真值 */
-    @JsonProperty("questionCount")
+    @JsonProperty("question_count")
     private Integer questionCount;
 
     /** 本批次统一数据截止时间（UTC） */
-    @JsonProperty("dataCutoff")
+    @JsonProperty("data_cutoff")
     private Instant dataCutoff;
 
     /** 创建时间（UTC） */
-    @JsonProperty("createdAt")
+    @JsonProperty("created_at")
     private Instant createdAt;
 
     /** 更新时间（UTC） */
-    @JsonProperty("updatedAt")
+    @JsonProperty("updated_at")
     private Instant updatedAt;
 
     /** 任务状态实时聚合计数 */
-    @JsonProperty("statusCounts")
+    @JsonProperty("status_counts")
     private PredictionJobStatusCountsDto statusCounts;
 }

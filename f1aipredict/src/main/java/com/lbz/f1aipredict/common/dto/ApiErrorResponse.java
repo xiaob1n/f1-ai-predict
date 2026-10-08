@@ -10,7 +10,8 @@ import lombok.NoArgsConstructor;
  * 统一 API 错误响应 DTO。
  * <p>
  * 供全局异常处理（@RestControllerAdvice）返回稳定、可机读的错误结构。
- * 字段显式声明 camelCase {@link JsonProperty}，如 {"code":"RESOURCE_NOT_FOUND","message":"..."}。
+ * 字段显式声明 {@link JsonProperty}；REST JSON 多词键约定为 snake_case，
+ * 本类仅含单词键，如 {"code":"RESOURCE_NOT_FOUND","message":"..."}。
  * 不暴露 SQL、堆栈或内部类名等敏感信息。
  */
 @Data

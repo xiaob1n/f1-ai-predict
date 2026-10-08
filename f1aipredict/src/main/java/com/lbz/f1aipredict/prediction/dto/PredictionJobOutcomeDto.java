@@ -8,7 +8,11 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
-/** 预测任务终态查询 DTO；仅包含面向客户端的白名单字段。 */
+/**
+ * 预测任务终态查询 DTO；仅包含面向客户端的白名单字段。
+ * <p>
+ * REST JSON 键（含嵌套结果/失败对象）为 snake_case；与 MQ 结果消息的 camelCase 契约相互独立。
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -16,7 +20,7 @@ import java.util.List;
 public class PredictionJobOutcomeDto {
 
     /** 任务公开业务键。 */
-    @JsonProperty("predictionJobId")
+    @JsonProperty("prediction_job_id")
     private String predictionJobId;
 
     /** 当前任务状态。 */
@@ -38,7 +42,7 @@ public class PredictionJobOutcomeDto {
     @AllArgsConstructor
     public static class Result {
 
-        @JsonProperty("selectedOptions")
+        @JsonProperty("selected_options")
         private List<SelectedOption> selectedOptions;
 
         @JsonProperty("confidence")
@@ -52,7 +56,7 @@ public class PredictionJobOutcomeDto {
     @AllArgsConstructor
     public static class SelectedOption {
 
-        @JsonProperty("optionId")
+        @JsonProperty("option_id")
         private Integer optionId;
 
         @JsonProperty("position")
@@ -66,7 +70,7 @@ public class PredictionJobOutcomeDto {
     @AllArgsConstructor
     public static class Failure {
 
-        @JsonProperty("failureCode")
+        @JsonProperty("failure_code")
         private String failureCode;
 
         @JsonProperty("summary")

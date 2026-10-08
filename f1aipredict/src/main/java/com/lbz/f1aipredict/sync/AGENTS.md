@@ -40,7 +40,7 @@
 ## Feed 模型与 DTO 注解分界
 
 - `feed/*` 面向上游读取：`@JsonProperty` 用上游真实键（PascalCase `GamedayId`/`MeetingId`，混合键 `FOMMEETINGSESSIONKEY`），类级 `@JsonIgnoreProperties(ignoreUnknown = true)`。键名五花八门，禁止按 Java 字段名反推。
-- `dto/*` 面向客户端：每字段显式 `@JsonProperty("camelCase")`，值等于 Java 字段名（契约测试反射强制）。两类方向相反，勿混用。
+- REST RequestBody/response DTO 面向 REST 客户端：Java 字段保持 camelCase，每字段显式 `@JsonProperty("snake_case")`；注解值是 REST JSON 外部名称并控制读写。`SyncRecordQuery` 是 `@ModelAttribute` 查询 DTO，其字段和 `@JsonProperty` 继续使用既有 camelCase 查询名。Feed 模型仍使用上游原键名（PascalCase 或混合大小写）；两类方向相反，勿混用。
 - 模块内自建解析用 `com.fasterxml.jackson.databind.ObjectMapper`（Jackson 2）；DTO/feed 注解包保持 `com.fasterxml.jackson.annotation.*`。
 
 ## 映射规则

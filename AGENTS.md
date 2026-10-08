@@ -57,7 +57,7 @@ common/config：
 
 ## 项目约定（改代码必须遵守）
 
-- DTO：Lombok `@Data` + `@Builder` + 全参/无参构造；每个字段显式 `@JsonProperty("camelCase 名")`，值必须与 Java 字段名一致（契约测试反射强制）。对外 JSON 一律 camelCase。
+- REST JSON RequestBody/response DTO：Lombok `@Data` + `@Builder` + 全参/无参构造；Java 字段保持 camelCase，每个字段显式 `@JsonProperty("snake_case 名")`，注解值是 REST JSON 的外部字段名，控制反序列化与序列化（契约测试验证）。此规则不适用于 `@ModelAttribute` 查询 DTO（如 `QuestionQuery`、`SyncRecordQuery`）：查询参数名及其 `@JsonProperty` 保持既有 camelCase。REST JSON 一律 snake_case；URL/path/query/header 名称保持现状。Feed 模型的 `@JsonProperty` 使用上游真实键（PascalCase 或混合大小写），Java↔Python 消息队列契约继续使用 camelCase。
 - Entity：`@TableName` + `@TableId(IdType.AUTO)` + 非主键列显式 `@TableField("snake_case 列")`；DB snake_case 列映射 Java camelCase 字段（配合 `map-underscore-to-camel-case: true`）。`DATE` 列映射 `LocalDate`，`DATETIME(3)` 映射 `Instant`，一律 UTC。
 - 分层：Controller 只依赖 Service 接口、只返回 DTO；Service 分接口与 impl；存在 Store 时统一走 Store。
 - 复用优先：已有 Service/Store/Client 能完成的职责不新写链路；`F1PredictFeedClient` 是唯一 Feed 客户端，Feed URL 不硬编码、全部读 `F1PredictFeedProperties`。

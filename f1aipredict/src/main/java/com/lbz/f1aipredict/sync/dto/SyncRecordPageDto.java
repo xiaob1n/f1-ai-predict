@@ -13,7 +13,7 @@ import java.util.List;
  * 同步记录分页结果。
  * <p>
  * 不返回实体对象；items 默认空列表避免序列化为 null。
- * JSON 键使用 camelCase。
+ * REST JSON 键使用 snake_case（本类均为单词键，嵌套记录项同样为 snake_case）。
  */
 @Data
 @Builder

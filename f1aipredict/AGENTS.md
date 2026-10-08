@@ -44,7 +44,7 @@ f1aipredict/
 - 复用优先：已有 Service/Store/Client 能承担的职责不另写链路；Feed 拉取一律复用 `F1PredictFeedClient`。
 - 改动 Java 代码须补中文注释/Javadoc 说明意图，风格与现有代码一致。
 - Jackson 2 注意：Boot 3.5.16 使用 `com.fasterxml.jackson.databind.ObjectMapper`；DTO 与 Feed 模型的注解包保持 `com.fasterxml.jackson.annotation.*`。classpath 无 springdoc，不加 `@Operation`。
-- DTO/实体注解约定（与根知识库一致）：DTO 每字段显式 `@JsonProperty("camelCase 名")`；实体 `@TableName` + `@TableId` + 非主键列 `@TableField("snake_case 列")`。新写字段照现有类抄即可，契约测试反射强制校验。
+- REST DTO/实体注解约定（与根知识库一致）：REST JSON RequestBody/response DTO 的 Java 字段保持 camelCase，每字段显式 `@JsonProperty("snake_case 名")`，注解值是 REST JSON 外部字段名并控制读写；`@ModelAttribute` 查询 DTO 及其 `@JsonProperty` 继续使用既有 camelCase 查询名，URL/path/query/header 名称保持现状。Feed 模型使用上游原键名（PascalCase 或混合大小写），Java↔Python 消息队列 DTO 继续使用 camelCase。实体使用 `@TableName` + `@TableId` + 非主键列 `@TableField("snake_case 列")`。
 - 测试与构建预期：普通单测与契约测试不连 MySQL（mock 或纯反射）；`./mvnw spring-boot:run` 才依赖 `application.yaml` 指向的真实 MySQL，本地无库启动即失败，属预期行为。
 - 工程没有任何 formatter/coverage/CI 配置，pom 除 spring-boot 插件外无额外检查插件；不要声称存在。
 

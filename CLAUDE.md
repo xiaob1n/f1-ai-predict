@@ -32,11 +32,11 @@ Java 无独立 lint/格式化插件；Python `ruff` 是开发依赖。上方 `me
 - Java 领域代码按 `controller → service 接口/impl → mapper/entity` 分层，对外返回 DTO。`sync` 额外通过唯一 Feed 客户端 `F1PredictFeedClient` 拉取数据，通过 `SyncPersistenceStore` 管理同步记录/原始载荷；定时器和管理端调用 `FeedSyncService`。同步按内容哈希幂等，`syncCurrent` 经代理分别调用短事务子同步，不能将 HTTP 拉取包在大事务中。
 - 预测批次创建先由 `RoundService` 和 `PredictionQuestionReadService` 在事务外校验分站、OPEN 题目、最新快照及选项；`PredictionBatchTransactionExecutor` 在独立短事务中原子创建 PENDING 批次与任务，并允许批次序号唯一键冲突重试。读取题目/快照/选项时批量查询，避免逐题访问 Mapper。当前批次创建不产生 RabbitMQ 消息。
 - `python-agent-worker/` 是独立的 FastAPI 阶段一骨架：`common` 配置、requestId 与日志，`reliability` 本地追踪，`api` 健康检查/状态与错误处理中间件，`messaging/dto` 定义未来 Java→Python 的消息契约。尚未接入队列、数据库或模型推理；`/health/ready` 返回 503 DOWN 是预期占位行为。
-- 跨语言契约以 Java 对外 camelCase / UTC 时间和 Python Pydantic 的 camelCase alias、UTC `Z` 序列化为核心。`sql/001..006_*.sql` 是手工维护的 DDL 来源（无迁移工具）；`005_answer_scoring.sql` 的评分流程仍未实现。`java-api-design.md`、`python-api-design.md` 和可行性分析包含未来方案，若与已实现代码不一致，以代码及契约测试为准。
+- REST API 的 JSON 字段名使用 `snake_case`，Java DTO 内部字段仍使用 `camelCase`；Java 与 Python Worker 的消息队列契约继续使用 `camelCase` / UTC `Z` 序列化。Feed JSON 键名保持上游原样（PascalCase 或混合大小写）。`sql/001..006_*.sql` 是手工维护的 DDL 来源（无迁移工具）；`005_answer_scoring.sql` 的评分流程仍未实现。`java-api-design.md`、`python-api-design.md` 和可行性分析包含未来方案，若与已实现代码不一致，以代码及契约测试为准。
 
 ## 修改时需保持的约定
 
-- Java Controller 只依赖 Service 接口；DTO 字段显式标注同名 `@JsonProperty`；Entity 列映射遵守 SQL 脚本。项目现用 Jackson 2 (`com.fasterxml.jackson.*`)；字段/映射和 SQL 的一致性由反射契约测试守护。业务代码注释和 Javadoc 用中文。
+- Java Controller 只依赖 Service 接口；REST JSON RequestBody/response DTO 的 Java 字段保持 camelCase，并显式用 `@JsonProperty` 映射 snake_case JSON 外部字段名（该名称控制读写）。`@ModelAttribute` 查询 DTO 及其 `@JsonProperty` 继续使用既有 camelCase 查询名。Feed 键和 Java↔Python 消息队列字段各自保持原契约；URL/path/query/header 名称不随 JSON 字段名变更。Entity 列映射遵守 SQL 脚本。项目现用 Jackson 2 (`com.fasterxml.jackson.*`)；字段/映射和 SQL 的一致性由反射契约测试守护。业务代码注释和 Javadoc 用中文。
 - Java 时间使用 UTC `Instant`；Feed 带偏移的时间先用 `OffsetDateTime.parse(...).toInstant()`。API 分页 page 从 0 开始，默认 size 20、最多 100；MyBatis-Plus 内部页码从 1 开始。
 - `common/` 统一处理 `X-Request-Id`、日志上下文和错误响应；同步失败对外是 502。Python 的相应横切逻辑位于 `common/` 与 `api/middleware.py`。不要把尚未落地的 Python 消费者或 Java 消息发布器当作可调用组件。
 - 根及各子目录 `AGENTS.md` 有更细的领域/测试约定，但其 2026-09-06 代码状态描述早于当前 `prediction` 和 Python Worker 实现，遇到状态冲突先核对现有源码。不要执行 git commit。

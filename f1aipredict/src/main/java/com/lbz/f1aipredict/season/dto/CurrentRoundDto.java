@@ -13,7 +13,7 @@ import java.util.List;
  * 当前分站聚合 DTO。
  * <p>
  * 同时携带分站、所属赛季、Session 列表以及从 Session 推导出的 gamedayId。
- * sessions 默认空列表，避免未附带时序列化为 null。
+ * sessions 默认空列表，避免未附带时序列化为 null。REST JSON 键为 snake_case（如 gameday_id）。
  * 不包含预测截止、锁定或评分完成字段。
  */
 @Data
@@ -39,6 +39,6 @@ public class CurrentRoundDto {
      * 从该分站 Session 按 startDateUtc ASC（空值最后）、id ASC 选取的第一个非空 gamedayId。
      * 没有则为 JSON null。
      */
-    @JsonProperty("gamedayId")
+    @JsonProperty("gameday_id")
     private Integer gamedayId;
 }

@@ -18,8 +18,9 @@ import java.util.List;
 /**
  * 创建预测批次的请求体。
  * <p>
- * {@code questionIds} 与 {@code allOpenQuestions=true} 互斥：只能二选一。
- * {@code dataCutoff} 必须是带时区的 ISO-8601，反序列化后为 UTC {@link Instant}。
+ * REST JSON 键为 snake_case（如 {@code question_ids}），Java 字段保持 camelCase。
+ * {@code question_ids} 与 {@code all_open_questions=true} 互斥：只能二选一。
+ * {@code data_cutoff} 必须是带时区的 ISO-8601，反序列化后为 UTC {@link Instant}。
  * 版本字段长度与 {@code sql/004_prediction.sql} 中 VARCHAR 宽度一致。
  */
 @Data
@@ -45,7 +46,7 @@ public class CreatePredictionBatchRequest {
      * 显式题目 ID 列表。null 表示未提供；空数组非法。
      * 与 {@link #allOpenQuestions}=true 互斥。
      */
-    @JsonProperty("questionIds")
+    @JsonProperty("question_ids")
     @Size(max = MAX_QUESTION_IDS)
     private List<Long> questionIds;
 
@@ -53,34 +54,34 @@ public class CreatePredictionBatchRequest {
      * 是否自动选取该分站全部可预测 OPEN 题目。
      * 仅 {@code true} 且未声明 questionIds 时合法；{@code false}/null 必须改走 questionIds。
      */
-    @JsonProperty("allOpenQuestions")
+    @JsonProperty("all_open_questions")
     private Boolean allOpenQuestions;
 
     /** 本批次统一数据截止时间，必须带时区且最多精确到毫秒，入库为 UTC Instant。允许未来值。 */
-    @JsonProperty("dataCutoff")
+    @JsonProperty("data_cutoff")
     @JsonDeserialize(using = OffsetInstantDeserializer.class)
     @NotNull
     private Instant dataCutoff;
 
     /** 业务预测截止时间，独立于数据可见性截止；历史调用可暂不填写。 */
-    @JsonProperty("predictionDeadline")
+    @JsonProperty("prediction_deadline")
     @JsonDeserialize(using = OffsetInstantDeserializer.class)
     private Instant predictionDeadline;
 
     /** 特征版本，对应 SQL VARCHAR(32)，拒绝空白。 */
-    @JsonProperty("featureVersion")
+    @JsonProperty("feature_version")
     @NotBlank
     @Size(max = FEATURE_VERSION_MAX_LENGTH)
     private String featureVersion;
 
     /** 模型版本，对应 SQL VARCHAR(64)，拒绝空白。 */
-    @JsonProperty("modelVersion")
+    @JsonProperty("model_version")
     @NotBlank
     @Size(max = MODEL_VERSION_MAX_LENGTH)
     private String modelVersion;
 
     /** Prompt 版本，对应 SQL VARCHAR(64)，拒绝空白。 */
-    @JsonProperty("promptVersion")
+    @JsonProperty("prompt_version")
     @NotBlank
     @Size(max = PROMPT_VERSION_MAX_LENGTH)
     private String promptVersion;
