@@ -3,6 +3,7 @@ package com.lbz.f1aipredict.sync.service.impl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.lbz.f1aipredict.common.InvalidRequestException;
 import com.lbz.f1aipredict.common.ResourceNotFoundException;
 import com.lbz.f1aipredict.question.entity.Question;
 import com.lbz.f1aipredict.question.entity.QuestionOption;
@@ -44,8 +45,8 @@ import com.lbz.f1aipredict.sync.util.FeedSyncUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.dao.PessimisticLockingFailureException;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -87,6 +88,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     private static final String DEFAULT_SEASON_STATUS = "UPCOMING";
     private static final String DEFAULT_ROUND_STATUS = "SCHEDULED";
     private static final String DEFAULT_SESSION_STATUS = "SCHEDULED";
+    private static final int MAX_SCHEDULE_LOCK_RETRIES = 1;
     private static final String SNAPSHOT_REASON_INITIAL = "INITIAL";
     private static final String SNAPSHOT_REASON_CHANGED = "CHANGED";
 
@@ -99,18 +101,18 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     private final QuestionMapper questionMapper;
     private final QuestionSnapshotMapper questionSnapshotMapper;
     private final QuestionOptionMapper questionOptionMapper;
+    private final FeedSyncTransactionExecutor transactionExecutor;
     private final ObjectMapper objectMapper;
 
     /**
-     * Spring 事务代理。syncCurrent 必须经此调用 syncSchedule / syncQuestions，
-     * 否则 this.xxx() 自调用会绕过 {@code @Transactional}。
+     * Spring 服务代理。syncCurrent 经代理保持同步步骤顺序；业务短事务由独立执行器开启。
      * 测试 9 参构造器指向 this；CurrentTest spy 后再 bind 到 spy。
      */
     private FeedSyncService self;
 
     /**
      * 生产构造器：注入 {@code @Lazy} 自身代理，打破 impl ↔ 接口的循环依赖，
-     * 让 syncCurrent 走代理以生效独立事务。禁止把整段 syncCurrent 包进一个大事务。
+     * 保持 syncCurrent 的子调用路径；独立短事务由事务执行器代理开启。
      */
     @Autowired
     public FeedSyncServiceImpl(F1PredictFeedClient feedClient,
@@ -122,9 +124,11 @@ public class FeedSyncServiceImpl implements FeedSyncService {
                                QuestionMapper questionMapper,
                                QuestionSnapshotMapper questionSnapshotMapper,
                                QuestionOptionMapper questionOptionMapper,
+                               FeedSyncTransactionExecutor transactionExecutor,
                                @Lazy FeedSyncService self) {
         this(feedClient, properties, persistenceStore, seasonMapper, roundMapper,
-                meetingSessionMapper, questionMapper, questionSnapshotMapper, questionOptionMapper);
+                meetingSessionMapper, questionMapper, questionSnapshotMapper, questionOptionMapper,
+                transactionExecutor);
         this.self = Objects.requireNonNull(self, "self must not be null");
     }
 
@@ -141,6 +145,20 @@ public class FeedSyncServiceImpl implements FeedSyncService {
                                QuestionMapper questionMapper,
                                QuestionSnapshotMapper questionSnapshotMapper,
                                QuestionOptionMapper questionOptionMapper) {
+        this(feedClient, properties, persistenceStore, seasonMapper, roundMapper, meetingSessionMapper,
+                questionMapper, questionSnapshotMapper, questionOptionMapper, new FeedSyncTransactionExecutor());
+    }
+
+    public FeedSyncServiceImpl(F1PredictFeedClient feedClient,
+                               F1PredictFeedProperties properties,
+                               SyncPersistenceStore persistenceStore,
+                               SeasonMapper seasonMapper,
+                               RoundMapper roundMapper,
+                               MeetingSessionMapper meetingSessionMapper,
+                               QuestionMapper questionMapper,
+                               QuestionSnapshotMapper questionSnapshotMapper,
+                               QuestionOptionMapper questionOptionMapper,
+                               FeedSyncTransactionExecutor transactionExecutor) {
         this.feedClient = Objects.requireNonNull(feedClient, "feedClient must not be null");
         this.properties = Objects.requireNonNull(properties, "properties must not be null");
         this.persistenceStore = Objects.requireNonNull(persistenceStore, "persistenceStore must not be null");
@@ -150,6 +168,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         this.questionMapper = Objects.requireNonNull(questionMapper, "questionMapper must not be null");
         this.questionSnapshotMapper = Objects.requireNonNull(questionSnapshotMapper, "questionSnapshotMapper must not be null");
         this.questionOptionMapper = Objects.requireNonNull(questionOptionMapper, "questionOptionMapper must not be null");
+        this.transactionExecutor = Objects.requireNonNull(transactionExecutor, "transactionExecutor must not be null");
         // Boot 3.5.16 使用 Jackson 2；Feed 时间字段是字符串，这里只做 JSON 解析，无需 JavaTimeModule
         this.objectMapper = new ObjectMapper();
         this.self = this;
@@ -168,14 +187,13 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      * 成功路径的业务 upsert 与 SUCCESS 记录在同一事务中提交。
      */
     @Override
-    @Transactional
     public SyncResultDto syncSchedule() {
         long startedAt = System.currentTimeMillis();
         log.info("开始赛程同步");
         String sourceUrl = buildSourceUrl();
         try {
             String rawJson = feedClient.fetchSchedule();
-            SyncResultDto result = persistSchedule(rawJson, sourceUrl, startedAt);
+            SyncResultDto result = executeScheduleSync(rawJson, sourceUrl, startedAt);
             log.info("赛程同步结束: status={}, recordId={}, payloadId={}, durationMs={}",
                     result.getStatus(), result.getSyncRecordId(), result.getPayloadId(), elapsedMs(startedAt));
             return result;
@@ -183,6 +201,22 @@ public class FeedSyncServiceImpl implements FeedSyncService {
             log.error("赛程 Feed 拉取失败: httpStatus={}, errorType={}",
                     ex.getHttpStatus(), ex.getClass().getSimpleName());
             return writeFailed(SOURCE_TYPE_SCHEDULE, sourceUrl, null, null, ex.getMessage(), ex.getHttpStatus(), startedAt, null);
+        }
+    }
+
+    private SyncResultDto executeScheduleSync(String rawJson, String sourceUrl, long startedAt) {
+        for (int attempt = 0; ; attempt++) {
+            try {
+                return transactionExecutor.executeSchedule(() -> {
+                    lockScheduleRounds(rawJson);
+                    return persistSchedule(rawJson, sourceUrl, startedAt);
+                });
+            } catch (PessimisticLockingFailureException error) {
+                if (attempt >= MAX_SCHEDULE_LOCK_RETRIES) {
+                    throw error;
+                }
+                log.warn("赛程同步遇到并发锁冲突，进行有限重试: attempt={}", attempt + 1);
+            }
         }
     }
 
@@ -222,7 +256,6 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      * 成功路径的业务 upsert 与 SUCCESS 记录在同一事务中提交。
      */
     @Override
-    @Transactional
     public SyncResultDto syncQuestions(Integer gamedayId) {
         long startedAt = System.currentTimeMillis();
         if (gamedayId == null) {
@@ -232,7 +265,10 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         String sourceUrl = buildQuestionsSourceUrl(gamedayId);
         try {
             String rawJson = feedClient.fetchQuestions(gamedayId);
-            SyncResultDto result = persistQuestions(rawJson, gamedayId, sourceUrl, startedAt);
+            SyncResultDto result = transactionExecutor.execute(() -> {
+                Long roundId = lockGamedayRound(gamedayId);
+                return persistQuestions(rawJson, gamedayId, sourceUrl, startedAt, roundId);
+            });
             log.info("题目同步结束: gamedayId={}, status={}, recordId={}, payloadId={}, durationMs={}",
                     gamedayId, result.getStatus(), result.getSyncRecordId(), result.getPayloadId(),
                     elapsedMs(startedAt));
@@ -414,7 +450,8 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     /**
      * 计算整包哈希、留档、判重后逐题 upsert。
      */
-    private SyncResultDto persistQuestions(String rawJson, Integer gamedayId, String sourceUrl, long startedAt) {
+    private SyncResultDto persistQuestions(String rawJson, Integer gamedayId, String sourceUrl, long startedAt,
+                                           Long roundId) {
         String json = rawJson == null ? "" : rawJson;
         String contentHash = FeedSyncUtils.sha256Hex(json);
         Long payloadId = persistenceStore.saveRawPayload(newPayload(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, json, gamedayId));
@@ -422,7 +459,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         SyncRecord previous = persistenceStore.findLatestUnchanged(SOURCE_TYPE_QUESTIONS, contentHash);
         if (previous != null) {
             try {
-                QuestionReconciliation reconciliation = reconcileQuestionStatuses(json, gamedayId);
+                QuestionReconciliation reconciliation = reconcileQuestionStatuses(json, gamedayId, roundId);
                 String status = reconciliation.inserted() + reconciliation.normalized() == 0 ? STATUS_SKIPPED : STATUS_SUCCESS;
                 String note = reconciliation.skipped() > 0 ? "skippedQuestions=" + reconciliation.skipped() : null;
                 Long recordId = persistenceStore.saveSyncRecord(
@@ -438,7 +475,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         }
 
         try {
-            int skippedQuestions = upsertQuestions(json, gamedayId);
+            int skippedQuestions = upsertQuestions(json, gamedayId, roundId);
             String note = skippedQuestions > 0 ? "skippedQuestions=" + skippedQuestions : null;
             Long recordId = persistenceStore.saveSyncRecord(
                     newSyncRecord(SOURCE_TYPE_QUESTIONS, sourceUrl, contentHash, STATUS_SUCCESS, 200, note, startedAt, gamedayId));
@@ -455,9 +492,9 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     /**
      * 同包重试只补建缺题与 INITIAL 快照，或修正相同内容的状态；已有不同哈希绝不回退。
      */
-    private QuestionReconciliation reconcileQuestionStatuses(String json, Integer gamedayId) throws JsonProcessingException {
+    private QuestionReconciliation reconcileQuestionStatuses(String json, Integer gamedayId, Long roundId)
+            throws JsonProcessingException {
         List<QuestionsFeedQuestion> sources = extractQuestions(parseQuestionsResponse(json));
-        Long roundId = resolveRoundId(gamedayId);
         if (roundId == null) {
             return new QuestionReconciliation(0, 0, sources.size());
         }
@@ -518,8 +555,7 @@ public class FeedSyncServiceImpl implements FeedSyncService {
      *
      * @return 因缺少 round_id 等原因跳过的题目数
      */
-    private int upsertQuestions(String json, Integer gamedayId) throws JsonProcessingException {
-        Long roundId = resolveRoundId(gamedayId);
+    private int upsertQuestions(String json, Integer gamedayId, Long roundId) throws JsonProcessingException {
         if (roundId == null) {
             log.warn("gamedayId={} 无对应 meeting_session，跳过全部题目", gamedayId);
             List<QuestionsFeedQuestion> questions = extractQuestions(parseQuestionsResponse(json));
@@ -576,11 +612,177 @@ public class FeedSyncServiceImpl implements FeedSyncService {
     }
 
     /**
-     * 通过 meeting_session.gameday_id 解析 round_id；无记录时返回 null。
+     * 锁定比赛日唯一 round 锚点，并在锁内复核 Session 与现存题目的归属。
      */
-    private Long resolveRoundId(Integer gamedayId) {
-        MeetingSession session = meetingSessionMapper.selectByGamedayId(gamedayId);
-        return session == null ? null : session.getRoundId();
+    private Long lockGamedayRound(Integer gamedayId) {
+        List<MeetingSession> sessions = meetingSessionMapper.selectAllByGamedayId(gamedayId);
+        Set<Long> roundIds = new HashSet<>();
+        if (sessions != null) {
+            for (MeetingSession session : sessions) {
+                if (session == null || session.getRoundId() == null
+                        || !Objects.equals(gamedayId, session.getGamedayId())) {
+                    throw new InvalidRequestException("Gameday session ownership is missing or inconsistent");
+                }
+                roundIds.add(session.getRoundId());
+            }
+        }
+        if (roundIds.isEmpty()) {
+            return null;
+        }
+        if (roundIds.size() != 1) {
+            throw new InvalidRequestException("Gameday must belong to exactly one existing round");
+        }
+        Long roundId = roundIds.iterator().next();
+        if (roundMapper.selectByIdForUpdate(roundId) == null) {
+            throw new InvalidRequestException("Gameday round anchor is missing");
+        }
+        List<MeetingSession> confirmedSessions = meetingSessionMapper.selectAllByGamedayId(gamedayId);
+        if (confirmedSessions == null || confirmedSessions.isEmpty()
+                || confirmedSessions.stream().anyMatch(session -> session == null || session.getRoundId() == null
+                || !Objects.equals(gamedayId, session.getGamedayId()) || !Objects.equals(roundId, session.getRoundId()))) {
+            throw new InvalidRequestException("Gameday session round ownership changed during synchronization");
+        }
+        List<Long> questionRoundIds = questionMapper.selectDistinctRoundIdsByGamedayId(gamedayId);
+        if (questionRoundIds != null && questionRoundIds.stream()
+                .anyMatch(questionRoundId -> !Objects.equals(roundId, questionRoundId))) {
+            throw new InvalidRequestException("Gameday question round ownership is inconsistent");
+        }
+        return roundId;
+    }
+
+    /**
+     * 赛程同步先锁定所有既有目标/旧归属 round，再按比赛日升序锁定 Session 索引范围。
+     * 若 Session 已有题目却要迁移比赛日或 round，则拒绝，避免破坏已有业务锚点。
+     */
+    private void lockScheduleRounds(String json) {
+        RacedayFeedResponse response;
+        try {
+            response = objectMapper.readValue(json == null ? "" : json, RacedayFeedResponse.class);
+        } catch (JsonProcessingException ex) {
+            return;
+        }
+        List<RacedayFeedSession> sessions = extractSessions(response);
+        Set<Long> roundIds = new HashSet<>();
+        Map<Integer, Long> seasonIds = new LinkedHashMap<>();
+        Map<Integer, MeetingSession> expectedSessions = new LinkedHashMap<>();
+        Map<Integer, Long> expectedTargetRoundIds = new LinkedHashMap<>();
+        Map<Integer, Set<Integer>> expectedTargetSessionKeys = new LinkedHashMap<>();
+        Map<Integer, String> expectedTargetRoundKeys = new LinkedHashMap<>();
+        Set<Integer> migratingGamedays = new HashSet<>();
+        for (RacedayFeedSession session : sessions) {
+            Integer year = parseYear(session.getSeason());
+            Integer meetingNumber = session.getMeetingNumber();
+            if (year == null || meetingNumber == null) {
+                continue;
+            }
+            Long seasonId = seasonIds.computeIfAbsent(year, key -> {
+                Season season = seasonMapper.selectByYear(key);
+                return season == null ? null : season.getId();
+            });
+            Round targetRound = seasonId == null ? null
+                    : roundMapper.selectBySeasonIdAndRoundNumber(seasonId, meetingNumber);
+            Long targetRoundId = targetRound == null ? null : targetRound.getId();
+            if (targetRoundId != null) {
+                roundIds.add(targetRoundId);
+            }
+            Integer targetGamedayId = session.getGamedayId();
+            if (targetGamedayId != null) {
+                String targetRoundKey = year + ":" + meetingNumber;
+                String previousRoundKey = expectedTargetRoundKeys.putIfAbsent(targetGamedayId, targetRoundKey);
+                if (previousRoundKey != null && !Objects.equals(previousRoundKey, targetRoundKey)) {
+                    throw new InvalidRequestException("Gameday is mapped to multiple schedule rounds");
+                }
+                if (!expectedTargetSessionKeys.containsKey(targetGamedayId)) {
+                    Set<Integer> targetSessionKeys = new HashSet<>();
+                    List<MeetingSession> targetSessions = meetingSessionMapper.selectAllByGamedayId(targetGamedayId);
+                    if (targetSessions != null) {
+                        for (MeetingSession targetSession : targetSessions) {
+                            if (targetSession == null || targetSession.getRoundId() == null
+                                    || !Objects.equals(targetGamedayId, targetSession.getGamedayId())
+                                    || targetSession.getSessionKey() == null) {
+                                throw new InvalidRequestException("Target gameday ownership is missing or inconsistent");
+                            }
+                            targetSessionKeys.add(targetSession.getSessionKey());
+                            expectedSessions.putIfAbsent(targetSession.getSessionKey(), targetSession);
+                            roundIds.add(targetSession.getRoundId());
+                        }
+                    }
+                    expectedTargetRoundIds.put(targetGamedayId, targetRoundId);
+                    expectedTargetSessionKeys.put(targetGamedayId, targetSessionKeys);
+                }
+            }
+            Integer sessionKey = parseSessionKey(session.getFomMeetingSessionKey());
+            MeetingSession existing = sessionKey == null ? null : meetingSessionMapper.selectBySessionKey(sessionKey);
+            if (existing == null) {
+                continue;
+            }
+            expectedSessions.putIfAbsent(sessionKey, existing);
+            if (existing.getRoundId() != null) {
+                roundIds.add(existing.getRoundId());
+            }
+            if (!Objects.equals(existing.getGamedayId(), session.getGamedayId())
+                    || targetRoundId == null && existing.getRoundId() != null
+                    || targetRoundId != null && !Objects.equals(existing.getRoundId(), targetRoundId)) {
+                if (existing.getGamedayId() != null) {
+                    migratingGamedays.add(existing.getGamedayId());
+                }
+                if (targetGamedayId != null) {
+                    migratingGamedays.add(targetGamedayId);
+                }
+            }
+        }
+        List<Long> orderedRoundIds = new ArrayList<>(roundIds);
+        orderedRoundIds.sort(Long::compareTo);
+        for (Long roundId : orderedRoundIds) {
+            if (roundMapper.selectByIdForUpdate(roundId) == null) {
+                throw new InvalidRequestException("Schedule round anchor is missing");
+            }
+        }
+        for (Map.Entry<Integer, MeetingSession> entry : expectedSessions.entrySet()) {
+            MeetingSession current = meetingSessionMapper.selectBySessionKey(entry.getKey());
+            MeetingSession expected = entry.getValue();
+            if (current == null || !Objects.equals(current.getId(), expected.getId())
+                    || !Objects.equals(current.getRoundId(), expected.getRoundId())
+                    || !Objects.equals(current.getGamedayId(), expected.getGamedayId())
+                    || current.getRoundId() != null && !roundIds.contains(current.getRoundId())) {
+                throw new InvalidRequestException("Schedule session ownership changed; retry synchronization");
+            }
+        }
+        List<Integer> orderedTargetGamedays = new ArrayList<>(expectedTargetSessionKeys.keySet());
+        orderedTargetGamedays.sort(Integer::compareTo);
+        for (Integer gamedayId : orderedTargetGamedays) {
+            Set<Integer> expectedSessionKeys = expectedTargetSessionKeys.get(gamedayId);
+            Long targetRoundId = expectedTargetRoundIds.get(gamedayId);
+            List<MeetingSession> currentSessions = meetingSessionMapper.selectAllByGamedayIdForUpdate(gamedayId);
+            Set<Integer> currentSessionKeys = new HashSet<>();
+            if (currentSessions != null) {
+                for (MeetingSession current : currentSessions) {
+                    if (current == null || current.getSessionKey() == null
+                            || !Objects.equals(gamedayId, current.getGamedayId()) || current.getRoundId() == null
+                            || !Objects.equals(targetRoundId, current.getRoundId())) {
+                        throw new InvalidRequestException("Target gameday ownership changed; retry synchronization");
+                    }
+                    currentSessionKeys.add(current.getSessionKey());
+                    MeetingSession expected = expectedSessions.get(current.getSessionKey());
+                    if (expected != null && (!Objects.equals(current.getId(), expected.getId())
+                            || !Objects.equals(current.getRoundId(), expected.getRoundId()))) {
+                        throw new InvalidRequestException("Target gameday ownership changed; retry synchronization");
+                    }
+                }
+            }
+            if (!currentSessionKeys.containsAll(expectedSessionKeys)) {
+                throw new InvalidRequestException("Target gameday sessions changed; retry synchronization");
+            }
+        }
+        for (Integer gamedayId : migratingGamedays) {
+            List<Question> questionsForExistingDay = questionMapper.selectByGamedayId(gamedayId);
+            if (questionsForExistingDay != null && !questionsForExistingDay.isEmpty()) {
+                throw new InvalidRequestException("Cannot migrate a session with existing question anchors");
+            }
+            if (persistenceStore.findLatestAnswerRegistrationForUpdate(gamedayId) != null) {
+                throw new InvalidRequestException("Cannot migrate a session with answer sync registrations");
+            }
+        }
     }
 
     /**
@@ -819,6 +1021,21 @@ public class FeedSyncServiceImpl implements FeedSyncService {
         return skipped;
     }
 
+    /** 事务内写入后使用当前读锁定比赛日 Session，并确保归属目标 round。 */
+    private void verifyGamedayRoundOwnership(Integer gamedayId, Long expectedRoundId) {
+        List<MeetingSession> sessions = meetingSessionMapper.selectAllByGamedayIdForUpdate(gamedayId);
+        if (sessions == null || sessions.isEmpty()) {
+            throw new InvalidRequestException("Gameday session ownership is missing");
+        }
+        for (MeetingSession session : sessions) {
+            if (session == null || session.getRoundId() == null || session.getSessionKey() == null
+                    || !Objects.equals(gamedayId, session.getGamedayId())
+                    || !Objects.equals(expectedRoundId, session.getRoundId())) {
+                throw new InvalidRequestException("Gameday must belong to exactly one round");
+            }
+        }
+    }
+
     /**
      * 同一赛季内按 MeetingId（回退 MeetingNumber）分组，一场大奖赛只对应一个 round。
      */
@@ -843,10 +1060,18 @@ public class FeedSyncServiceImpl implements FeedSyncService {
                 continue;
             }
             Round round = upsertRound(season.getId(), sample, group);
+            Set<Integer> affectedGamedays = new HashSet<>();
             for (RacedayFeedSession session : group) {
                 if (!upsertSession(round.getId(), session)) {
                     skipped++;
+                } else if (session.getGamedayId() != null) {
+                    affectedGamedays.add(session.getGamedayId());
                 }
+            }
+            List<Integer> orderedGamedays = new ArrayList<>(affectedGamedays);
+            orderedGamedays.sort(Integer::compareTo);
+            for (Integer gamedayId : orderedGamedays) {
+                verifyGamedayRoundOwnership(gamedayId, round.getId());
             }
         }
         return skipped;

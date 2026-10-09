@@ -119,6 +119,34 @@ public class SyncPersistenceStore {
     }
 
     /**
+     * 更新已登记的同步尝试终态；创建时间不变，同步时间表示完成时刻。
+     */
+    public void finishSyncRecord(SyncRecord record) {
+        Objects.requireNonNull(record, "record must not be null");
+        record.setSyncedAt(Instant.now());
+        if (syncRecordMapper.updateById(record) != 1) {
+            throw new IllegalStateException("Sync record could not be completed");
+        }
+        log.debug("完成同步记录: sourceType={}, status={}, gamedayId={}, recordId={}, durationMs={}",
+                record.getSourceType(), record.getStatus(), record.getGamedayId(),
+                record.getId(), record.getDurationMs());
+    }
+
+    /**
+     * 由答案同步完成事务内执行当前读，读取并锁定指定比赛日最新的请求登记。
+     */
+    public SyncRecord findLatestAnswerRegistrationForUpdate(Integer gamedayId) {
+        Objects.requireNonNull(gamedayId, "gamedayId must not be null");
+        return syncRecordMapper.selectLatestAnswerRegistrationForUpdate(gamedayId);
+    }
+
+    /** 按主键读取同步登记，供回调核实令牌所属比赛日。 */
+    public SyncRecord findSyncRecordById(Long id) {
+        Objects.requireNonNull(id, "id must not be null");
+        return syncRecordMapper.selectById(id);
+    }
+
+    /**
      * 按条件分页查询同步记录。
      * <p>
      * 再次裁剪 page/size（与 Controller 双保险）：size 空或 &lt;1 → 20，size&gt;100 → 100，

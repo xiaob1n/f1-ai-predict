@@ -78,6 +78,10 @@ public interface QuestionMapper extends BaseMapper<Question> {
     @Select("SELECT * FROM question WHERE gameday_id = #{gamedayId} ORDER BY id ASC")
     List<Question> selectByGamedayId(@Param("gamedayId") Integer gamedayId);
 
+    /** 仅查询题目归属 round，用于同步栅栏校验且避免加载题目快照字段。 */
+    @Select("SELECT DISTINCT round_id FROM question WHERE gameday_id = #{gamedayId}")
+    List<Long> selectDistinctRoundIdsByGamedayId(@Param("gamedayId") Integer gamedayId);
+
     /**
      * 仅在读取的内容和状态仍生效时刷新同步时间或修正状态，避免陈旧实体覆盖新快照。
      * 返回零行表示并发变更，不应回退为全字段更新；空哈希、空状态也参与条件比较。

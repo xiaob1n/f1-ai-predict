@@ -3,6 +3,7 @@ package com.lbz.f1aipredict.season.mapper;
 import com.lbz.f1aipredict.season.entity.Round;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
@@ -26,6 +27,17 @@ public interface RoundMapper extends BaseMapper<Round> {
     @Select("SELECT * FROM round WHERE season_id = #{seasonId} AND round_number = #{roundNumber} LIMIT 1")
     Round selectBySeasonIdAndRoundNumber(@Param("seasonId") Long seasonId,
                                          @Param("roundNumber") Integer roundNumber);
+
+    /**
+     * 锁定已存在的分站行，作为答案同步与归属变更共同使用的稳定锚点。
+     * <p>
+     * 同一事务内的 SqlSession 默认启用一级（本地）缓存：锁等待结束后，若紧随其后的归属复查命中缓存，
+     * 就读不到等待期间他人提交的变更。因此显式声明 {@code flushCache=TRUE}，执行前清空本事务的本地缓存。
+     * {@code useCache=false} 只控制二级缓存，不会清除一级缓存，二者缺一不可。
+     */
+    @Select("SELECT * FROM round WHERE id = #{roundId} FOR UPDATE")
+    @Options(flushCache = Options.FlushCachePolicy.TRUE, useCache = false)
+    Round selectByIdForUpdate(@Param("roundId") Long roundId);
 
     /**
      * 按赛季列出全部分站，供只读查询接口使用。

@@ -41,7 +41,7 @@ public class SyncRecordDto {
     @JsonProperty("content_hash")
     private String contentHash;
 
-    /** 同步状态：SUCCESS / SKIPPED_UNCHANGED / FAILED */
+    /** 同步状态：SUCCESS / SKIPPED_UNCHANGED / FAILED；答案登记可为 RUNNING 或 SKIPPED_SUPERSEDED */
     @JsonProperty("status")
     private String status;
 

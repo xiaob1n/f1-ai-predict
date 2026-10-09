@@ -32,4 +32,18 @@ public interface SyncRecordMapper extends BaseMapper<SyncRecord> {
             """)
     SyncRecord selectLatestUnchanged(@Param("sourceType") String sourceType,
                                      @Param("contentHash") String contentHash);
+
+    /**
+     * 当前读并锁定指定比赛日最新的答案登记，RUNNING 与 FAILED 同样具有栅栏效力。
+     * 现有表没有 (source_type, gameday_id, id) 索引；在禁止新增 DDL 的约束下，需扫描
+     * sync_record 主键逆序并过滤，可能短暂锁住扫描到的记录，因此调用前必须先持有 round 锚点锁。
+     */
+    @Select("""
+            SELECT * FROM sync_record FORCE INDEX (PRIMARY)
+            WHERE source_type = 'ANSWERS' AND gameday_id = #{gamedayId}
+            ORDER BY id DESC
+            LIMIT 1
+            FOR UPDATE
+            """)
+    SyncRecord selectLatestAnswerRegistrationForUpdate(@Param("gamedayId") Integer gamedayId);
 }

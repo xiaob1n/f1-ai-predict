@@ -39,7 +39,7 @@ public class SyncRecord {
     @TableField("content_hash")
     private String contentHash;
 
-    /** 状态：SUCCESS/SKIPPED_UNCHANGED/FAILED */
+    /** 状态：SUCCESS/SKIPPED_UNCHANGED/FAILED；答案同步登记阶段为 RUNNING，过期回调为 SKIPPED_SUPERSEDED */
     @TableField("status")
     private String status;
 
