@@ -125,7 +125,7 @@ public class PredictionRequestSnapshotResolver {
     }
 
     private static Integer nullableInteger(JsonNode node) {
-        return node == null || !node.isIntegralNumber() ? null : node.intValue();
+        return node == null || !node.isIntegralNumber() || !node.canConvertToInt() ? null : node.intValue();
     }
 
     /** 只包含经快照和赛事表确认的字段。 */
@@ -135,5 +135,10 @@ public class PredictionRequestSnapshotResolver {
     /** 题目正文取自快照；比赛日用于同站匹配，多 Session 时不猜测。 */
     public record FrozenQuestion(String questionText, String subText, Integer optionTemplateId,
                                  Integer choiceLimit, Integer gamedayId,
-                                 Integer meetingKey, Integer sessionKey) { }
+                                 Integer meetingKey, Integer sessionKey) {
+        /** 仅依据冻结的选择上限映射题型，不读取可能变化的当前题目字段。 */
+        public String questionType() {
+            return Integer.valueOf(1).equals(choiceLimit) ? "SINGLE" : "UNKNOWN";
+        }
+    }
 }

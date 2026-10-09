@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from f1_predict.messaging.dto.base import F1PredictBaseModel, UtcDateTime
 
@@ -28,6 +28,20 @@ class QuestionV2(F1PredictBaseModel):
     option_template_id: int | None = Field(alias="optionTemplateId")
     choice_limit: int | None = Field(alias="choiceLimit")
     options: list[QuestionOptionV2] = Field(alias="options", min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def single_requires_integer_choice_limit(cls, value: object) -> object:
+        """单选题必须在原始消息中以 JSON 整数 1 声明选择上限。"""
+        if not isinstance(value, dict):
+            return value
+        question_type = value.get("questionType", value.get("question_type"))
+        if isinstance(question_type, str):
+            question_type = question_type.strip()
+        choice_limit = value.get("choiceLimit", value.get("choice_limit"))
+        if question_type == "SINGLE" and (type(choice_limit) is not int or choice_limit != 1):
+            raise ValueError("SINGLE question requires integer choiceLimit=1")
+        return value
 
 
 class RaceContextV2(F1PredictBaseModel):
