@@ -1,0 +1,56 @@
+# D 阶段 MySQL 集成测试专用配置，经 spring.config.name=d-stage-it 加载，
+# 不读取 application.yaml，也不连接 Nacos。连接值全部来自 scripts/d-stage-it-mysql.sh
+# 生成的环境变量；缺失时 ItEnvironment 在上下文启动前直接失败。
+spring:
+  main:
+    banner-mode: off
+    web-application-type: none
+  cloud:
+    nacos:
+      config:
+        enabled: false
+        import-check:
+          enabled: false
+  datasource:
+    url: ${F1_IT_JDBC_URL}
+    username: ${F1_IT_DB_USERNAME}
+    password: ${F1_IT_DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      # D6 并发评分测试需要多于并发线程数的连接，避免连接池饥饿掩盖锁竞争。
+      maximum-pool-size: 16
+      connection-timeout: 20000
+
+f1it:
+  run-id: ${F1_IT_RUN_ID}
+
+# Feed 根地址默认指向不可用的回环端口；需要 Feed 的测试用 MockWebServer 覆盖，绝不访问真实站点。
+f1predict:
+  feed:
+    base-url: http://127.0.0.1:9
+    schedule-path: /feeds/schedule/raceday_en.json
+    limits-path: /feeds/limits/constraints.json
+    questions-path: /feeds/questions/questions_{gamedayId}_en.json
+    mix-api-path: /feeds/live/mixapi.json
+    web-config-path: /feeds/apps/web_config.json
+    connect-timeout-ms: 2000
+    read-timeout-ms: 5000
+  sync:
+    scheduler:
+      enabled: false
+  prediction:
+    outcome:
+      enabled: false
+
+f1:
+  prediction:
+    outbox:
+      enabled: false
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto

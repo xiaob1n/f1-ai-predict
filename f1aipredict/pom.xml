@@ -134,4 +134,64 @@
         </plugins>
     </build>
 
+    <profiles>
+        <!-- 隔离 MySQL 集成测试：仅 -Pit 时把 src/it 加入测试编译并由 failsafe 执行 *IT；
+             默认 ./mvnw test 不编译、不执行 src/it，保持离线。连接参数由
+             scripts/d-stage-it-mysql.sh 生成的环境变量提供，缺失时 IT 直接失败而不是跳过。 -->
+        <profile>
+            <id>it</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>add-it-test-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/it/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>add-it-test-resources</id>
+                                <phase>generate-test-resources</phase>
+                                <goals>
+                                    <goal>add-test-resource</goal>
+                                </goals>
+                                <configuration>
+                                    <resources>
+                                        <resource>
+                                            <directory>src/it/resources</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-failsafe-plugin</artifactId>
+                        <configuration>
+                            <includes>
+                                <include>**/*IT.java</include>
+                            </includes>
+                            <!-- 启用 it profile 即要求真实执行：没有测试或被跳过都视为失败。 -->
+                            <failIfNoTests>true</failIfNoTests>
+                            <skip>false</skip>
+                            <skipTests>false</skipTests>
+                            <skipITs>false</skipITs>
+                            <trimStackTrace>false</trimStackTrace>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>
