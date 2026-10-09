@@ -47,6 +47,25 @@ f1predict:
   prediction:
     outcome:
       enabled: ${F1_PREDICTION_OUTCOME_ENABLED:false}
+    # 截止后自动锁定批次；默认关闭。每轮至多 batch-limit 个候选（1~500），按主键游标轮转。
+    lock-scheduler:
+      enabled: ${F1_PREDICTION_LOCK_SCHEDULER_ENABLED:false}
+      initial-delay: PT1M
+      fixed-delay: PT1M
+      batch-limit: 50
+  # 答案同步与自动首次评分相互独立、默认关闭；自动流程只做首次评分，答案修订后需管理端显式重算。
+  scoring:
+    answer-sync-scheduler:
+      enabled: ${F1_SCORING_ANSWER_SYNC_SCHEDULER_ENABLED:false}
+      initial-delay: PT10M
+      fixed-delay: PT30M
+      # 每轮HTTP总上限1~100。未评分优先约3/4，修订保留至少1；上限1时四轮中一轮优先修订，不足可借配额。
+      batch-limit: 10
+    auto-score-scheduler:
+      enabled: ${F1_SCORING_AUTO_SCORE_SCHEDULER_ENABLED:false}
+      initial-delay: PT5M
+      fixed-delay: PT5M
+      batch-limit: 20
 
 logging:
   include-application-name: true

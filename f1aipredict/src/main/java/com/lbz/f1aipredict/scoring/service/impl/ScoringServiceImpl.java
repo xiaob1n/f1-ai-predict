@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.lbz.f1aipredict.common.InvalidRequestException;
 import com.lbz.f1aipredict.common.ResourceNotFoundException;
+import com.lbz.f1aipredict.prediction.PredictionJobStatus;
 import com.lbz.f1aipredict.prediction.entity.PredictionBatch;
 import com.lbz.f1aipredict.prediction.entity.PredictionJob;
 import com.lbz.f1aipredict.prediction.entity.PredictionOutcomeReceipt;
@@ -32,6 +33,8 @@ import com.lbz.f1aipredict.scoring.entity.ScoringDetail;
 import com.lbz.f1aipredict.scoring.mapper.BatchTotalScoreMapper;
 import com.lbz.f1aipredict.scoring.mapper.OfficialAnswerMapper;
 import com.lbz.f1aipredict.scoring.mapper.ScoringDetailMapper;
+import com.lbz.f1aipredict.scoring.service.AutoScoreResult;
+import com.lbz.f1aipredict.scoring.service.AutoScoreResult.Decision;
 import com.lbz.f1aipredict.scoring.service.ScoringService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -105,6 +108,9 @@ public class ScoringServiceImpl implements ScoringService {
      * MySQL 舍入最多使其晚 0.5ms；received_at 为 DATETIME(6)，舍入最多 0.5µs。取 1ms 足以覆盖两者之和。
      */
     private static final Duration OBSERVATION_PRECISION_MARGIN = Duration.ofMillis(1);
+    /** 任务终态：之后不会再产生成功结果，与 PredictionJobMapper.updateTerminalStatus 的非终态集合互补。 */
+    private static final Set<String> TERMINAL_JOB_STATUSES = Set.of(PredictionJobStatus.SUCCEEDED.name(),
+            PredictionJobStatus.FAILED.name(), PredictionJobStatus.DEAD_LETTER.name());
 
     private final PredictionBatchMapper batchMapper;
     private final PredictionJobMapper jobMapper;
@@ -190,17 +196,70 @@ public class ScoringServiceImpl implements ScoringService {
         return scored.total();
     }
 
+    /**
+     * 自动首次评分。与 {@link #scoreBatch} 相同运行于 READ COMMITTED 并先取批次行锁，就绪条件全部在锁内重新核验，
+     * 不信任调度候选 SQL 的结论。
+     * <p>
+     * 一致性设计：
+     * <ul>
+     *   <li>结果、任务终态与接收凭证的写入方（终态受理事务）都先锁批次行，持锁期间这三类数据不会变化；</li>
+     *   <li>官方答案与题目状态的写入方不取批次锁，可能与本事务交错提交。为此评分输入只读取一次形成内存快照，
+     *       “答案是否齐备”直接以该快照算出的明细判定（存在 NO_ANSWER 即跳过），写入的明细也来自同一快照，
+     *       因此判定与落库不可能分别看到撤销前后的两种答案集合，不会结算出 NO_ANSWER；</li>
+     *   <li>快照读取之后提交的答案撤销或修订属于正常修订：答案同步会留档，自动流程不重算，需显式重算；</li>
+     *   <li>本事务不对 official_answer 加锁，答案事务也从不取批次锁，两者之间不存在锁顺序环。</li>
+     * </ul>
+     */
+    @Override
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AutoScoreResult tryAutoScoreBatch(Long batchId) {
+        PredictionBatch batch = lockBatch(batchId);
+        if (batch.getLockedAt() == null) {
+            return AutoScoreResult.skipped(Decision.SKIPPED_NOT_LOCKED);
+        }
+        BatchTotalScore existing = totalMapper.selectByBatchId(batchId);
+        if (existing != null) {
+            return new AutoScoreResult(Decision.ALREADY_SCORED, existing);
+        }
+        List<PredictionJob> jobs = jobMapper.selectAllByBatchId(batchId);
+        // Set.of 不接受 contains(null)，空状态按非终态处理。
+        if (jobs.isEmpty() || !jobs.stream().allMatch(job -> job.getStatus() != null
+                && TERMINAL_JOB_STATUSES.contains(job.getStatus()))) {
+            return AutoScoreResult.skipped(Decision.SKIPPED_JOBS_NOT_TERMINAL);
+        }
+        List<PredictionResult> results = resultMapper.selectByBatchId(batchId);
+        if (results.isEmpty()) {
+            return AutoScoreResult.skipped(Decision.SKIPPED_NO_RESULTS);
+        }
+        ScoredBatch scored = scoreSnapshot(batch, jobs, results);
+        long missingAnswers = scored.details().stream()
+                .filter(detail -> ScoreStatus.NO_ANSWER.name().equals(detail.getScoreStatus())).count();
+        if (missingAnswers > 0) {
+            log.info("自动评分跳过，准时结果缺少官方答案: batchId={}, missingAnswerCount={}", batchId, missingAnswers);
+            return AutoScoreResult.skipped(Decision.SKIPPED_ANSWERS_MISSING);
+        }
+        persist(scored);
+        log.info("批次自动首次评分完成: batchId={}, detailCount={}, totalScore={}, maxScore={}",
+                batchId, scored.details().size(), scored.total().getTotalScore(), scored.total().getMaxScore());
+        return new AutoScoreResult(Decision.SCORED, scored.total());
+    }
+
     /** 锁定批次行并确认批次已锁定；未锁定的批次预测仍可能变化，不得结算。 */
     private PredictionBatch lockLockedBatch(Long batchId) {
+        PredictionBatch batch = lockBatch(batchId);
+        if (batch.getLockedAt() == null) {
+            throw new InvalidRequestException("Prediction batch is not locked: " + batchId);
+        }
+        return batch;
+    }
+
+    private PredictionBatch lockBatch(Long batchId) {
         if (batchId == null || batchId <= 0) {
             throw new InvalidRequestException("batchId must be positive");
         }
         PredictionBatch batch = batchMapper.selectByIdForUpdate(batchId);
         if (batch == null) {
             throw new ResourceNotFoundException("Prediction batch not found: " + batchId);
-        }
-        if (batch.getLockedAt() == null) {
-            throw new InvalidRequestException("Prediction batch is not locked: " + batchId);
         }
         return batch;
     }
@@ -234,7 +293,11 @@ public class ScoringServiceImpl implements ScoringService {
         if (results.isEmpty()) {
             throw new InvalidRequestException("Prediction batch has no results to score: " + batchId);
         }
-        List<PredictionJob> jobs = jobMapper.selectAllByBatchId(batchId);
+        return scoreSnapshot(batch, jobMapper.selectAllByBatchId(batchId), results);
+    }
+
+    /** 以一次性读取的输入快照算出整批明细与总分，自动评分的就绪判定与写入共用同一结果。 */
+    private ScoredBatch scoreSnapshot(PredictionBatch batch, List<PredictionJob> jobs, List<PredictionResult> results) {
         Map<Long, PredictionJob> jobsById = jobs.stream()
                 .collect(Collectors.toMap(PredictionJob::getId, Function.identity()));
         Set<Long> resultJobIds = results.stream().map(PredictionResult::getJobId)
@@ -293,12 +356,17 @@ public class ScoringServiceImpl implements ScoringService {
         return choiceLimitsBySnapshot;
     }
 
+    /**
+     * 只接受 int 范围内的 JSON 整数；布尔、小数、字符串以及越界整数一律视为缺失（UNKNOWN + UNSCORED）。
+     * 越界值不能直接 intValue()：4294967297 或 -4294967295 会截断回绕成 1，被误判为单选。
+     */
     private Integer parseFrozenChoiceLimit(String rawJson) {
         try {
             JsonNode root = objectMapper.readTree(rawJson);
             JsonNode config = root == null ? null : root.get("Config");
             JsonNode choiceLimit = config == null ? null : config.get("ChoiceLimit");
-            return choiceLimit != null && choiceLimit.isIntegralNumber() ? choiceLimit.intValue() : null;
+            return choiceLimit != null && choiceLimit.isIntegralNumber() && choiceLimit.canConvertToInt()
+                    ? choiceLimit.intValue() : null;
         } catch (JsonProcessingException | IllegalArgumentException error) {
             return null;
         }

@@ -25,4 +25,16 @@ public interface ScoringService {
      * @return 重算后的批次总分
      */
     BatchTotalScore rescoreBatch(Long batchId, String reason);
+
+    /**
+     * 自动首次评分入口，供定时调度调用；不改变 {@link #scoreBatch} 的手动语义。
+     * <p>
+     * 在持有批次行锁的同一事务内重新核验：已锁定、尚无总分、全部任务终态、至少一条成功结果，
+     * 且所有准时、未取消的成功结果都已有官方答案；任一不满足即返回明确的跳过原因且不写入任何数据。
+     * 已有总分时直接返回 {@link AutoScoreResult.Decision#ALREADY_SCORED}，绝不自动重算。
+     *
+     * @param batchId 预测批次主键
+     * @return 判定结果；仅评分或已评分时携带总分
+     */
+    AutoScoreResult tryAutoScoreBatch(Long batchId);
 }
