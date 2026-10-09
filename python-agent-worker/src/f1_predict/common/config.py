@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     """显式选择模型边界；旧配置保持私网模式，不隐式启用厂商 API。"""
 
     vendor_api_enabled: bool = False
-    """厂商请求默认关闭;选择厂商不代表真实调用或预算获得批准。"""
+    """厂商请求默认关闭；开启须同时满足 DeepSeek、AUDITED 前向模式、密钥、审批标记与有界预算。"""
 
     deepseek_api_key: SecretStr | None = Field(default=None, exclude=True)
     """厂商 API 密钥只在显式启用时读取，日志和配置快照中保持脱敏。"""
@@ -172,9 +172,14 @@ class Settings(BaseSettings):
         """仅在策略、已审计圈速 fixture 与模型服务均配置时启用推理。"""
         replay_stub = (self.prediction_execution_mode == "HISTORICAL_ENGINEERING_REPLAY"
                        and self.prediction_replay_model_mode == "stub")
-        # C阶段已获批准 (deepseek-flash, 无上限预算, 2026-10-05)
-        # if self.vendor_api_enabled:
-        #     raise ValueError("vendor API calls remain blocked until separately approved stage C")
+        if self.vendor_api_enabled:
+            # 外发开关只在完整前向配置下有效；任何缺项都拒绝，而不是静默忽略开关。
+            if self.model_provider != "deepseek" or not self.prediction_enabled:
+                raise ValueError("vendor API requires model_provider=deepseek with prediction enabled")
+            if self.prediction_execution_mode != "AUDITED":
+                raise ValueError("vendor API is not permitted for historical engineering replay")
+            if self.deepseek_api_key is None or not self.deepseek_api_key.get_secret_value().strip():
+                raise ValueError("vendor API requires a configured DeepSeek API key")
         if self.prediction_enabled:
             model_fields = (
                 ("model_url", self.model_url if not replay_stub else "local-stub"),

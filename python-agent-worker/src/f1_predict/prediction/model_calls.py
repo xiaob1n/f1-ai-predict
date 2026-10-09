@@ -76,10 +76,15 @@ class ModelCallLedger:
 
     def __init__(
         self, path: str | Path, *, max_calls: int, call_reserve_microunits: int,
-        total_budget_microunits: int,
+        total_budget_microunits: int, max_distinct_jobs: int | None = None,
     ) -> None:
         if not isinstance(max_calls, int) or isinstance(max_calls, bool) or not 1 <= max_calls <= 3:
             raise ValueError("max_calls must be an integer between 1 and 3")
+        if max_distinct_jobs is not None and (
+            not isinstance(max_distinct_jobs, int) or isinstance(max_distinct_jobs, bool)
+            or max_distinct_jobs < 1
+        ):
+            raise ValueError("max_distinct_jobs must be a positive integer or None")
         if any(not isinstance(value, int) or isinstance(value, bool) or value <= 0
                for value in (call_reserve_microunits, total_budget_microunits)):
             raise ValueError("cost reserves must be positive integers")
@@ -91,6 +96,7 @@ class ModelCallLedger:
         self._max_calls = max_calls
         self._call_reserve_microunits = call_reserve_microunits
         self._total_budget_microunits = total_budget_microunits
+        self._max_distinct_jobs = max_distinct_jobs
         with self._session() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("""CREATE TABLE IF NOT EXISTS model_call_ledger (
@@ -122,18 +128,26 @@ class ModelCallLedger:
                 singleton INTEGER PRIMARY KEY CHECK(singleton=1),
                 max_calls INTEGER NOT NULL,
                 call_reserve_microunits INTEGER NOT NULL,
-                total_budget_microunits INTEGER NOT NULL
+                total_budget_microunits INTEGER NOT NULL,
+                max_distinct_jobs INTEGER
             )""")
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(model_call_settings)")}
+            if "max_distinct_jobs" not in columns:
+                # 旧账本补列为 NULL（不限任务数）；随本事务回滚，不会因后续校验失败留下半迁移。
+                db.execute("ALTER TABLE model_call_settings ADD COLUMN max_distinct_jobs INTEGER")
             settings = db.execute("SELECT * FROM model_call_settings WHERE singleton=1").fetchone()
             if settings is None:
                 db.execute(
-                    "INSERT INTO model_call_settings VALUES(1,?,?,?)",
-                    (max_calls, call_reserve_microunits, total_budget_microunits),
+                    """INSERT INTO model_call_settings(
+                        singleton,max_calls,call_reserve_microunits,total_budget_microunits,max_distinct_jobs
+                    ) VALUES(1,?,?,?,?)""",
+                    (max_calls, call_reserve_microunits, total_budget_microunits, max_distinct_jobs),
                 )
             elif (settings["max_calls"], settings["call_reserve_microunits"],
-                  settings["total_budget_microunits"]) != (
-                      max_calls, call_reserve_microunits, total_budget_microunits
+                  settings["total_budget_microunits"], settings["max_distinct_jobs"]) != (
+                      max_calls, call_reserve_microunits, total_budget_microunits, max_distinct_jobs
                   ):
+                # 任务数绑定同属持久审批：重启或改配置都不能悄悄放宽，也不能给旧账本补加约束后续用。
                 raise ValueError("ledger budget configuration differs from its persisted approval")
             db.commit()
 
@@ -156,6 +170,11 @@ class ModelCallLedger:
     def total_budget_microunits(self) -> int:
         """返回单个任务允许预留的费用总上限。"""
         return self._total_budget_microunits
+
+    @property
+    def max_distinct_jobs(self) -> int | None:
+        """返回账本允许出现的不同任务数上限；None 表示不限（仅离线或非厂商用途）。"""
+        return self._max_distinct_jobs
 
     def reserve(
         self, invocation: ModelInvocation, *, prompt_hash: str,
@@ -192,6 +211,13 @@ class ModelCallLedger:
                     raise CallNotPermitted("task call is not approved for retry")
                 if invocation.attempt <= previous["attempt"]:
                     raise CallNotPermitted("retry attempt must advance beyond the recorded lease")
+            elif self._max_distinct_jobs is not None:
+                # 与插入同处 IMMEDIATE 写事务，并发与跨进程只会有一个新任务占用名额。
+                jobs = db.execute(
+                    "SELECT COUNT(DISTINCT prediction_job_id) AS jobs FROM model_call_ledger"
+                ).fetchone()["jobs"]
+                if jobs >= self._max_distinct_jobs:
+                    raise CallBudgetExceeded("model call ledger is bound to another prediction job")
             aggregate = db.execute(
                 """SELECT COUNT(*) AS calls, COALESCE(SUM(reserved_microunits),0) AS cost
                    FROM model_call_ledger WHERE prediction_job_id=?""",
@@ -300,43 +326,7 @@ class ModelCallLedger:
 
     def _secure_database_file(self) -> None:
         """只允许私有目录中的当前用户独占普通账本文件。"""
-        path = Path(self._path)
-        for component in (path, *path.parents):
-            try:
-                component_stat = component.lstat()
-            except FileNotFoundError:
-                continue
-            if stat.S_ISLNK(component_stat.st_mode):
-                raise ValueError("model ledger path components must not be symlinks")
-        try:
-            parent_stat = path.parent.stat()
-        except OSError:
-            raise ValueError("model ledger parent directory must already exist") from None
-        if (not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_uid != os.geteuid()
-                or stat.S_IMODE(parent_stat.st_mode) != 0o700):
-            raise ValueError("model ledger parent directory must be private and owned by the current user")
-
-        flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
-        try:
-            descriptor = os.open(self._path, flags, stat.S_IRUSR | stat.S_IWUSR)
-        except OSError:
-            raise ValueError("model ledger file cannot be opened securely") from None
-        try:
-            file_stat = os.fstat(descriptor)
-            if (not stat.S_ISREG(file_stat.st_mode) or file_stat.st_uid != os.geteuid()
-                    or file_stat.st_nlink != 1 or stat.S_IMODE(file_stat.st_mode) != 0o600):
-                raise ValueError("model ledger must be a private owned regular file without hard links")
-        finally:
-            os.close(descriptor)
-        for suffix in ("-wal", "-shm"):
-            sidecar = Path(f"{self._path}{suffix}")
-            try:
-                sidecar_stat = sidecar.lstat()
-            except FileNotFoundError:
-                continue
-            if (not stat.S_ISREG(sidecar_stat.st_mode) or sidecar_stat.st_uid != os.geteuid()
-                    or sidecar_stat.st_nlink != 1 or stat.S_IMODE(sidecar_stat.st_mode) != 0o600):
-                raise ValueError("model ledger sidecars must be private owned regular files")
+        _secure_ledger_path(self._path, create=True)
 
     @contextmanager
     def _session(self) -> Iterator[sqlite3.Connection]:
@@ -356,6 +346,102 @@ class ModelCallLedger:
             if db.in_transaction:
                 db.rollback()
             db.close()
+
+
+@dataclass(frozen=True, slots=True)
+class LedgerInspection:
+    """只读检查得到的持久审批配置与调用计数，不含任何调用内容。"""
+
+    max_calls: int
+    call_reserve_microunits: int
+    total_budget_microunits: int
+    max_distinct_jobs: int | None
+    reserved_calls: int
+    distinct_jobs: int
+
+
+def inspect_ledger(path: str | Path) -> LedgerInspection | None:
+    """只读检查账本：不存在时只校验父目录并返回 None，绝不创建或迁移账本。"""
+    absolute = str(Path(path).expanduser().absolute())
+    if not _secure_ledger_path(absolute, create=False):
+        return None
+    uri = f"{Path(absolute).as_uri()}?mode=ro"
+    db = sqlite3.connect(uri, uri=True, timeout=30)
+    db.row_factory = sqlite3.Row
+    try:
+        # 显式快照同时读取配置与调用计数，并包含事务期间已提交的 WAL 数据。
+        db.execute("BEGIN")
+        tables = {row["name"] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        if not {"model_call_ledger", "model_call_settings"} <= tables:
+            raise ValueError("model ledger file is not an initialized ledger")
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(model_call_settings)")}
+        settings = db.execute("SELECT * FROM model_call_settings WHERE singleton=1").fetchone()
+        if settings is None:
+            raise ValueError("model ledger file is not an initialized ledger")
+        counts = db.execute(
+            "SELECT COUNT(*) AS calls, COUNT(DISTINCT prediction_job_id) AS jobs FROM model_call_ledger"
+        ).fetchone()
+    finally:
+        db.close()
+    _secure_ledger_path(absolute, create=False)
+    return LedgerInspection(
+        max_calls=settings["max_calls"],
+        call_reserve_microunits=settings["call_reserve_microunits"],
+        total_budget_microunits=settings["total_budget_microunits"],
+        # 旧结构账本没有该列，等同持久的“不限任务数”。
+        max_distinct_jobs=settings["max_distinct_jobs"] if "max_distinct_jobs" in columns else None,
+        reserved_calls=counts["calls"],
+        distinct_jobs=counts["jobs"],
+    )
+
+
+def _secure_ledger_path(path: str, *, create: bool) -> bool:
+    """校验路径无符号链接、父目录私有，文件为当前用户独占普通文件；返回文件是否存在。
+
+    create=False 时不创建文件，供只读检查使用。
+    """
+    ledger = Path(path)
+    for component in (ledger, *ledger.parents):
+        try:
+            component_stat = component.lstat()
+        except FileNotFoundError:
+            continue
+        if stat.S_ISLNK(component_stat.st_mode):
+            raise ValueError("model ledger path components must not be symlinks")
+    try:
+        parent_stat = ledger.parent.stat()
+    except OSError:
+        raise ValueError("model ledger parent directory must already exist") from None
+    if (not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_uid != os.geteuid()
+            or stat.S_IMODE(parent_stat.st_mode) != 0o700):
+        raise ValueError("model ledger parent directory must be private and owned by the current user")
+
+    flags = (os.O_CREAT | os.O_RDWR if create else os.O_RDONLY) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags, stat.S_IRUSR | stat.S_IWUSR)
+    except FileNotFoundError:
+        if create:
+            raise ValueError("model ledger file cannot be opened securely") from None
+        return False
+    except OSError:
+        raise ValueError("model ledger file cannot be opened securely") from None
+    try:
+        file_stat = os.fstat(descriptor)
+        if (not stat.S_ISREG(file_stat.st_mode) or file_stat.st_uid != os.geteuid()
+                or file_stat.st_nlink != 1 or stat.S_IMODE(file_stat.st_mode) != 0o600):
+            raise ValueError("model ledger must be a private owned regular file without hard links")
+    finally:
+        os.close(descriptor)
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(f"{path}{suffix}")
+        try:
+            sidecar_stat = sidecar.lstat()
+        except FileNotFoundError:
+            continue
+        if (not stat.S_ISREG(sidecar_stat.st_mode) or sidecar_stat.st_uid != os.geteuid()
+                or sidecar_stat.st_nlink != 1 or stat.S_IMODE(sidecar_stat.st_mode) != 0o600):
+            raise ValueError("model ledger sidecars must be private owned regular files")
+    return True
 
 
 def _sanitize_usage(usage: dict[str, Any] | None) -> dict[str, int] | str:
